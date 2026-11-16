@@ -33,10 +33,10 @@ Dirscope/
 │   ├── FolderPreviewAppApp.swift  App entry point
 │   ├── ContentView.swift          Sidebar navigation shell
 │   ├── AppSidebar.swift           Sidebar sections
-│   ├── AppVisualKit.swift         Shared visual components (heroes, cards, panels)
+│   ├── AppVisualKit.swift         SettingsPage shell, cards, brand mark, accent
 │   ├── AppBranding.swift          App name, colors, icon helpers
 │   ├── DashboardView.swift        Landing page
-│   ├── IntroductionView.swift     Onboarding story cards
+│   ├── IntroductionView.swift     Onboarding
 │   ├── ExtensionPageView.swift    Extension setup guide
 │   ├── QuickLookPageView.swift    Quick Look usage guide
 │   ├── SettingsPagesView.swift    Appearance & Behaviors pages
@@ -44,12 +44,12 @@ Dirscope/
 │   └── Settings/                  Settings form views
 │
 ├── FolderPreviewExtension/        Quick Look extension (AppKit)
-│   ├── PreviewViewController.swift   QL entry point
+│   ├── PreviewViewController.swift   QL entry point, list ↔ pane layout
 │   ├── FolderContentsTableView.swift List view
 │   ├── FolderContentsCollectionView.swift  Icon grid view
-│   ├── FilePreviewPaneView.swift     Side-panel file preview
+│   ├── FilePreviewPaneView.swift     Side-panel preview (source canvas, media, Office, QL)
 │   ├── FileItemLauncher.swift        Double-click open (extracts archive entries)
-│   ├── PreviewFooterView.swift       Path bar, item count, view switcher, zoom
+│   ├── PreviewFooterView.swift       Path, nav chevrons, count, view switcher, zoom
 │   ├── FolderTreeModel.swift         Expandable folder tree
 │   ├── ThumbnailProvider.swift       Inline thumbnail generation
 │   └── FileIconCache.swift           Cached file type icons
@@ -67,7 +67,8 @@ Dirscope/
 │   ├── PreviewColumn.swift        Column definitions
 │   ├── PreviewTheme.swift         Colors, fonts, layout constants
 │   ├── InlineFilePreviewLoader.swift  Text/code preview detection
-│   └── RichTextPreviewSupport.swift   Rendered Markdown/HTML helpers
+│   ├── RichTextPreviewSupport.swift   Markdown/HTML helpers + SourceSyntaxHighlighter
+│   └── OfficeDocumentPreview.swift    OOXML/ODF/RTF text extraction
 │
 ├── docs/
 │   └── DEVELOPMENT.md             This file
@@ -195,7 +196,27 @@ Status and reinstall: **Behaviors → Archive file opens** in the host app (`Arc
 
 The file list, right-hand inspect panel, and footer toolbar share semantic window background via `PreviewTheme.applySurfaceBackground`. Layer fills update in `viewDidChangeEffectiveAppearance` so the inspect pane and footer stay in sync with light/dark mode.
 
-The footer shows path breadcrumb (optional), **item count**, List/Icons switcher, and zoom slider.
+The footer shows path breadcrumb (optional), **up / down navigation chevrons**, item count, List/Icons switcher, and zoom slider. Finder keeps arrow keys in the Quick Look panel, so list movement is driven from those chevrons (and from clicks).
+
+### Side-panel preview pipeline
+
+`FilePreviewPaneView` chooses a presentation based on the selected `FileItem`:
+
+| Path | Implementation notes |
+|------|----------------------|
+| **Source / code** | `SourceSyntaxHighlighter` builds an `NSAttributedString`; `SourceCanvasView` draws it into an `NSImage` so glyphs composite inside Quick Look’s remote ViewBridge surface (live `NSTextView` drawing often stays blank there) |
+| **Markdown / HTML** | Source vs Formatted when a formatted preview is feasible; Source/Formatted controls are hidden when only one mode applies |
+| **Office** | `OfficeDocumentPreview` extracts text from OOXML/ODF packages and RTF |
+| **Images** | Background decode; iCloud dataless files use `NSFileCoordinator` / ubiquity download messaging before ImageIO |
+| **Video / audio** | `AVPlayer` + `AVPlayerView` (`PreviewPlayerView`) for in-process controls |
+| **System Quick Look** | Nested `QLPreviewView` for PDF and other types with a real system preview |
+| **Folders / archives** | Placeholder copy only |
+
+Archive entries load bytes once for preview (and HTML base URL staging) via `ArchiveContentLoader` / sandbox helpers.
+
+### Host app UI
+
+Guide and settings screens wrap content in `SettingsPage` from `AppVisualKit` (sidebar-driven System Settings–style layout, brand mark, card sections). Accent and chrome follow `AppBranding` / shared visual tokens.
 
 ### Bundle identifiers
 
@@ -218,9 +239,12 @@ User-facing name: **Dirscope** (bundle IDs unchanged from early development).
 | `Shared/TarArchiveReader.swift` | In-process tar/gz listing and extraction |
 | `Shared/ArchiveContentLoader.swift` | Archive format dispatch, tree building, entry I/O |
 | `Shared/ArchiveEntryOpenBridge.swift` | Staged archive opens from extension to helper |
+| `Shared/RichTextPreviewSupport.swift` | Markdown/HTML rendering + `SourceSyntaxHighlighter` |
+| `Shared/OfficeDocumentPreview.swift` | Office / ODF / RTF text extraction for the side pane |
 | `FolderPreviewExtension/PreviewViewController.swift` | Quick Look lifecycle and layout |
-| `FolderPreviewExtension/FilePreviewPaneView.swift` | Side-panel previews (folders, archives, images) |
-| `FolderPreviewApp/AppVisualKit.swift` | Shared SwiftUI design system |
+| `FolderPreviewExtension/FilePreviewPaneView.swift` | Side-panel previews (source canvas, media, Office, QL) |
+| `FolderPreviewExtension/PreviewFooterView.swift` | Path, selection nav chevrons, view mode, zoom |
+| `FolderPreviewApp/AppVisualKit.swift` | `SettingsPage` and shared SwiftUI chrome |
 
 ---
 
@@ -323,6 +347,10 @@ gh release create v1.0.0 dist/Dirscope-1.0.0.zip dist/Dirscope-1.0.0.dmg \
 |---------|-----|
 | Extension crash | `~/Library/Logs/DiagnosticReports/FolderPreviewExtension*.ips` |
 | Extension failed during preview | `./install-app.sh`, `killall Finder` |
+| Blank source pane after rebuild | Fully close Quick Look, then Space again so the new `.appex` loads |
+| Arrow keys don’t change selection | Expected in Finder Quick Look; use footer chevrons (`PreviewFooterView`) |
+| Image shows generic icon / empty pixels | Dataless iCloud file — wait for download or force materialize, then reselect |
+| `xcodebuild` / file I/O “Operation timed out” | Repo on iCloud Desktop with dataless files — download locally or move off iCloud |
 | Archive open broken | Reinstall LaunchAgent; `pgrep -fl backgroundOpenHelper` |
 | Codesign “resource fork… detritus” | `xattr -cr DerivedData` then rebuild |
 | Dock shows old icon | `killall Dock` after reinstall |
@@ -343,6 +371,10 @@ plutil -p ~/Library/Containers/com.folderpreview.app.preview/Data/Library/Applic
 - **Tar / `.tar.gz` / `.tar.xz`** — in-process listing and extraction with metadata; xz uses `/usr/bin/xz` on sandbox copy before tar parse
 - **Single `.gz`** — in-process gunzip
 - **`.7z` / `.rar`** — bundled `7zz` in app Resources ([`Vendor/README.md`](../Vendor/README.md)); Homebrew fallbacks for local dev
+- **Source preview** — language-aware coloring via `SourceSyntaxHighlighter`; rendered through `SourceCanvasView` bitmap (not selectable `NSTextView` text)
+- **Office preview** — extracted text for OOXML / ODF / RTF; not layout, charts, or legacy binary Office
+- **Media preview** — in-process `AVPlayerView` for video and audio
+- **List navigation** — footer up/down chevrons; Finder retains arrow keys in the Quick Look panel
 - **HTML in archives** — Source/Formatted preview with staged temp base URL; complex pages with external assets may need a browser
 - **Background helper status** — Behaviors settings shows LaunchAgent installed/running + reinstall action
 - **Zip entry cache** — archive bytes and parsed listings cached per path/size/mtime
@@ -351,7 +383,9 @@ plutil -p ~/Library/Containers/com.folderpreview.app.preview/Data/Library/Applic
 
 **Deferred / out of scope:**
 
-- Syntax highlighting in source preview
+- Selectable / searchable live text in the source pane (bitmap path is required for reliable QL compositing today)
+- Full Office layout (slides, sheets as grids, embedded images)
+- Arrow-key forwarding into the extension process (Finder / ViewBridge keeps those events)
 - `.zip` inside normal folders as expandable containers (separate feature)
 - Full in-process 7z parser (bundled binary is sufficient)
 

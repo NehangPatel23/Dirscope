@@ -32,21 +32,20 @@ Press **Space** or **⌘Y** on any folder or archive in Finder.
 | | |
 |---|---|
 | **What it is** | A native macOS host app + **Quick Look extension** that replaces Finder’s plain folder icon with a full file browser |
-| **What you get** | Sortable lists, icon grids, expandable trees, archive browsing, and a side-panel file inspector |
+| **What you get** | Sortable lists, icon grids, expandable trees, archive browsing, and a side-panel inspector (syntax-colored source, Office text, images, media) |
 | **What you don’t need** | Dirscope’s window open while previewing — Quick Look runs in the extension |
 | **Open source** | MIT license · built from scratch in Swift, SwiftUI, AppKit, and Quick Look |
 
 ```
   Finder                    Quick Look panel
   ──────                    ─────────────────────────────────────────
-  📁 My Project  ──Space──►  [ List │ Icons ]  path › … › src
-                             ┌──────────────────┬─────────────────────┐
+  📁 My Project  ──Space──►  ┌──────────────────┬─────────────────────┐
                              │ ▾ src            │  preview pane       │
-                             │   ▾ components   │  (text, image, QL)  │
-                             │     Button.swift │                     │
+                             │   ▾ components   │  (source, Office,   │
+                             │     Button.swift │   image, media, QL) │
                              └──────────────────┴─────────────────────┘
+                             path › … › src   ▲ ▼   [ List │ Icons ]
 ```
-
 ---
 
 ## Features
@@ -111,7 +110,7 @@ Open archives in Quick Look like folders — browse without extracting the whole
 2. A pending-open plist is written  
 3. A headless **background helper** (LaunchAgent) opens the file via Launch Services  
 
-Double-click, **Return**, or the side-panel **Open** button all use this path. Reinstall with `./install-app.sh` if opens stop working. Status is shown under **Behaviors → Archive file opens**.
+Double-click, **Return**, or the footer **Open with Dirscope…** button all use this path. Reinstall with `./install-app.sh` if opens stop working. Status is shown under **Behaviors → Archive file opens**.
 
 ---
 
@@ -121,18 +120,17 @@ Click any file in the list to inspect it on the right.
 
 | Content type | Behavior |
 |--------------|----------|
-| **Plain text & code** | Monospaced source view; 512 KB cap with truncation notice |
+| **Plain text & code** | Syntax-colored monospaced source (Swift, JS/TS, Python, Go, Rust, C-family, HTML, JSON, YAML, shell, …); 512 KB cap with truncation notice |
 | **Dotfiles & config** | `.gitignore`, `.dockerignore`, `.env*`, `.prettierrc`, `Dockerfile`, `Makefile`, … |
-| **Code extensions** | `.swift`, `.py`, `.dart`, `.ts`, `.rs`, `.go`, `.java`, `.kt`, … (see `InlineFilePreviewLoader`) |
-| **Markdown** | Source / Formatted toggle |
-| **HTML** | Source / Formatted toggle; staged base URL for archive entries |
-| **SVG** | Rendered image when possible |
-| **Images** | Decoded on a background thread, scaled to fit (not SVG) |
-| **PDF, video, audio, …** | Quick Look fallback when inline preview isn’t available |
-| **Folders** | Placeholder — use list chevrons to navigate |
-| **Archive containers** | Placeholder — use chevrons to browse |
+| **Markdown** | Source / Formatted toggle when a formatted preview is feasible |
+| **HTML / SVG** | Source / Formatted when markup can be shown; SVG rendered as an image when possible |
+| **Office documents** | Extracted text preview for `.docx`, `.xlsx`, `.pptx`, related OOXML/ODF, and RTF (not a full layout of slides or charts) |
+| **Images** | Inspector with scaled preview, dimensions, and color profile; iCloud placeholders download when the network allows |
+| **Video & audio** | In-process player with play, scrubber, volume, and playback controls |
+| **PDF & other system types** | System Quick Look surface when a real preview is available |
+| **Folders / archives** | Placeholder — use list chevrons to navigate |
 
-Archive entries reuse extracted bytes for Quick Look and HTML base URLs (no double extraction).
+Source text is drawn as a bitmap so glyphs composite correctly inside Quick Look’s remote preview. Archive entries reuse extracted bytes for preview and HTML base URLs (no double extraction).
 
 ---
 
@@ -142,16 +140,16 @@ The menu-bar app is for **onboarding, settings, and extension setup** — not re
 
 | Section | Purpose |
 |---------|---------|
-| **Dashboard** | Quick-start overview |
-| **Introduction** | What Dirscope does, archives, background helper |
-| **Quick Look** | Usage tips while previewing |
-| **Extension** | Step-by-step System Settings enablement |
+| **Dashboard** | Quick-start overview and System Settings shortcut |
+| **Introduction** | How Dirscope fits into Finder |
+| **Quick Look** | What you can do once the preview is open |
+| **Extension** | Turn Dirscope on in System Settings |
 | **Appearance** | Default view, text size (S / M / L), path breadcrumb |
 | **Behaviors** | Hidden files, folder-first sort, auto-expand, nesting depth, helper status |
-| **About** | Capabilities summary |
+| **About** | Product summary and capabilities |
 | **⌘, Settings** | Same Appearance & Behaviors panes |
 
-**Settings sync** — preferences live in the extension container plist; changes apply live in Quick Look via Darwin notifications (no relaunch).
+The host UI uses a System Settings–style sidebar and card layout (brand mark, App / Guide sections, accent selection). **Settings sync** — preferences live in the extension container plist; changes apply live in Quick Look via Darwin notifications (no relaunch).
 
 ---
 
@@ -237,11 +235,14 @@ Dirscope runs locally. It does not upload folder contents or analytics to any se
 
 ### Limitations
 
-- No syntax highlighting in source preview (plain monospaced text)
 - Complex HTML in archives may need a browser; external assets are not fetched
+- Office preview is extracted text, not slide layout, charts, or embedded images; legacy `.doc` / `.xls` / `.ppt` are not parsed
+- Arrow keys in the Quick Look panel are kept by Finder; use the footer **up / down** chevrons to move the file selection
+- Source preview is a rasterized image (selectable text is not available in that pane)
 - `.zip` files inside normal folders are not expandable as containers (only inside archive browse mode)
 - App Group entitlements are not used; prefs sync via explicit container path
 - Quick Look extension is sandboxed; archive opens depend on the background helper
+- Files still in iCloud (dataless) need a network download before image/media preview can show pixels
 
 ---
 
@@ -252,11 +253,12 @@ Dirscope runs locally. It does not upload folder contents or analytics to any se
 | Open preview | Select folder or archive in Finder → **Space** or **⌘Y** |
 | List / Icons | Footer segmented control |
 | Expand folder | Click chevron in Name column |
+| Move selection | Footer **up / down** chevrons |
 | Preview file | Single-click in list |
 | Open file | Double-click (or **Return** for archive entries) |
-| Open from archive | Double-click, **Return**, or side-panel **Open** |
+| Open from archive | Double-click, **Return**, or footer **Open with Dirscope…** |
 | Toggle columns | Right-click column header |
-| Change settings | Dirscope → **Configure** or **⌘,** |
+| Change settings | Dirscope app sidebar or **⌘,** |
 
 ---
 
@@ -303,11 +305,15 @@ gh release create v1.0.0 dist/Dirscope-1.0.0.zip dist/Dirscope-1.0.0.dmg \
 | macOS won’t open the app | [Gatekeeper](#gatekeeper-ad-hoc-builds): Right-click → Open |
 | Default folder icon in Quick Look | Close panel → `qlmanage -r` → `killall Finder` |
 | Extension failed during preview | `./install-app.sh` → `killall Finder` |
+| Blank source / code pane after install | Close Quick Look completely and press Space again so the new extension loads |
+| Arrow keys don’t move the list | Use the footer **up / down** chevrons (Finder keeps arrow keys in Quick Look) |
+| Image shows a generic PNG icon | File may still be in iCloud; wait for download or check network, then select again |
 | Archive list empty | Rebuild; ensure archive is readable |
 | Archive open does nothing | `./install-app.sh`; check **Behaviors → Archive file opens**; `pgrep -fl backgroundOpenHelper` |
 | Settings not updating | Close and reopen Quick Look |
 | Codesign “resource fork… detritus” | `xattr -cr DerivedData` then rebuild (`install-app.sh` clears this automatically) |
 | Extension missing in Settings | Reinstall; verify `Dirscope.app/Contents/PlugIns/FolderPreviewExtension.appex` |
+| Build hangs / “Operation timed out” | Project files on Desktop may be iCloud-dataless; download them locally or move the repo off iCloud Desktop |
 
 Inspect preferences:
 
