@@ -1,5 +1,4 @@
 import Foundation
-import UniformTypeIdentifiers
 
 enum ArchiveContentLoader {
     private struct ListingEntry {
@@ -31,25 +30,25 @@ enum ArchiveContentLoader {
         let metadata = metadataLookup(for: entries)
         let paths = entries.map(\.path)
 
+        let rollup = rollupFolders(entries)
         if let rootPrefix = singleRootFolderPrefix(in: paths) {
             return FolderContentLoader.sorted(
-                applyFolderMetadata(
-                    to: buildChildItems(
-                        from: paths,
-                        archiveURL: archiveURL,
-                        relativePath: rootPrefix,
-                        entries: entries,
-                        metadata: metadata
-                    ),
-                    entries: entries
+                buildChildItems(
+                    from: paths,
+                    archiveURL: archiveURL,
+                    relativePath: rootPrefix,
+                    metadata: metadata,
+                    rollup: rollup
                 )
             )
         }
 
         return FolderContentLoader.sorted(
-            applyFolderMetadata(
-                to: buildTopLevelItems(from: paths, archiveURL: archiveURL, entries: entries, metadata: metadata),
-                entries: entries
+            buildTopLevelItems(
+                from: paths,
+                archiveURL: archiveURL,
+                metadata: metadata,
+                rollup: rollup
             )
         )
     }
@@ -57,16 +56,14 @@ enum ArchiveContentLoader {
     static func loadChildren(in archiveURL: URL, relativePath: String) -> [FileItem] {
         let entries = listArchiveEntries(in: archiveURL)
         let metadata = metadataLookup(for: entries)
+        let rollup = rollupFolders(entries)
         return FolderContentLoader.sorted(
-            applyFolderMetadata(
-                to: buildChildItems(
-                    from: entries.map(\.path),
-                    archiveURL: archiveURL,
-                    relativePath: relativePath,
-                    entries: entries,
-                    metadata: metadata
-                ),
-                entries: entries
+            buildChildItems(
+                from: entries.map(\.path),
+                archiveURL: archiveURL,
+                relativePath: relativePath,
+                metadata: metadata,
+                rollup: rollup
             )
         )
     }
@@ -303,14 +300,42 @@ enum ArchiveContentLoader {
         Dictionary(entries.map { ($0.normalizedPath, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
+    private struct FolderRollup {
+        var totalSize: Int64 = 0
+        var latestDate: Date?
+    }
+
+    /// One pass over the archive. Each file's size and date are added to every parent folder.
+    private static func rollupFolders(_ entries: [ListingEntry]) -> [String: FolderRollup] {
+        var rollup: [String: FolderRollup] = [:]
+        rollup.reserveCapacity(entries.count)
+        for entry in entries where !entry.isDirectory {
+            let parts = entry.normalizedPath.split(separator: "/")
+            guard parts.count > 1 else { continue }
+            var prefix = ""
+            for part in parts.dropLast() {
+                prefix = prefix.isEmpty ? String(part) : prefix + "/" + String(part)
+                var bucket = rollup[prefix] ?? FolderRollup()
+                if let size = entry.size {
+                    bucket.totalSize += size
+                }
+                if let date = entry.modificationDate, bucket.latestDate.map({ date > $0 }) ?? true {
+                    bucket.latestDate = date
+                }
+                rollup[prefix] = bucket
+            }
+        }
+        return rollup
+    }
+
     private static func resolvedMetadata(
         for relativePath: String,
         isDirectory: Bool,
-        entries: [ListingEntry],
-        metadata: [String: ListingEntry]
+        metadata: [String: ListingEntry],
+        rollup: [String: FolderRollup]
     ) -> (size: Int64?, modificationDate: Date?) {
         if isDirectory {
-            return folderMetadata(for: relativePath, entries: entries, metadata: metadata)
+            return folderMetadata(for: relativePath, metadata: metadata, rollup: rollup)
         }
 
         guard let entry = metadata[normalizeEntryPath(relativePath)] else {
@@ -321,94 +346,15 @@ enum ArchiveContentLoader {
 
     private static func folderMetadata(
         for relativePath: String,
-        entries: [ListingEntry],
-        metadata: [String: ListingEntry]
+        metadata: [String: ListingEntry],
+        rollup: [String: FolderRollup]
     ) -> (size: Int64?, modificationDate: Date?) {
-        let normalizedFolder = normalizedFolderPrefix(for: relativePath)
-        let aggregated = aggregatedDescendantMetadata(for: relativePath, in: entries)
-        let explicitDate = metadata[normalizedFolder]?.modificationDate
-
-        let latestDate = [explicitDate, aggregated.latestDate]
-            .compactMap { $0 }
-            .max()
-
-        let totalSize = aggregated.totalSize > 0 ? aggregated.totalSize : nil
-        return (totalSize, latestDate)
-    }
-
-    private static func applyFolderMetadata(to items: [FileItem], entries: [ListingEntry]) -> [FileItem] {
-        let metadata = metadataLookup(for: entries)
-        return items.map { item in
-            guard item.isDirectory, item.isArchiveEntry else { return item }
-            let folderMeta = folderMetadata(for: item.relativePath, entries: entries, metadata: metadata)
-            guard folderMeta.size != item.size || folderMeta.modificationDate != item.modificationDate else {
-                return item
-            }
-            return FileItem(
-                url: item.url,
-                name: item.name,
-                isDirectory: item.isDirectory,
-                size: folderMeta.size,
-                modificationDate: folderMeta.modificationDate,
-                creationDate: item.creationDate,
-                contentAccessDate: item.contentAccessDate,
-                addedToDirectoryDate: item.addedToDirectoryDate,
-                kind: item.kind,
-                relativePath: item.relativePath,
-                pixelWidth: item.pixelWidth,
-                pixelHeight: item.pixelHeight,
-                isArchiveEntry: item.isArchiveEntry
-            )
-        }
-    }
-
-    private static func normalizedFolderPrefix(for relativePath: String) -> String {
-        let normalized = normalizeEntryPath(relativePath)
-        return normalized.hasSuffix("/") ? normalized : normalized + "/"
-    }
-
-    private static func folderName(from relativePath: String) -> String? {
-        let trimmed = normalizedFolderPrefix(for: relativePath)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed.split(separator: "/").last.map(String.init)
-    }
-
-    private static func isDescendantEntry(path: String, ofFolder folderRelativePath: String) -> Bool {
-        let folderPrefix = normalizedFolderPrefix(for: folderRelativePath)
-        if path.hasPrefix(folderPrefix), path != folderPrefix {
-            return true
-        }
-
-        guard let folderName = folderName(from: folderRelativePath), !folderName.isEmpty else {
-            return false
-        }
-
-        return path.contains("/\(folderName)/") || path.hasPrefix("\(folderName)/")
-    }
-
-    private static func aggregatedDescendantMetadata(
-        for folderRelativePath: String,
-        in entries: [ListingEntry]
-    ) -> (totalSize: Int64, latestDate: Date?) {
-        var totalSize: Int64 = 0
-        var latestDate: Date?
-
-        for entry in entries {
-            let path = entry.normalizedPath
-            guard isDescendantEntry(path: path, ofFolder: folderRelativePath) else { continue }
-
-            if !entry.isDirectory, let size = entry.size {
-                totalSize += size
-            }
-
-            if let date = entry.modificationDate,
-               latestDate.map({ date > $0 }) ?? true {
-                latestDate = date
-            }
-        }
-
-        return (totalSize, latestDate)
+        let key = normalizeEntryPath(relativePath).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let aggregate = rollup[key]
+        let explicitDate = metadata[key]?.modificationDate ?? metadata["\(key)/"]?.modificationDate
+        let latestDate = [explicitDate, aggregate?.latestDate].compactMap { $0 }.max()
+        let totalSize = aggregate?.totalSize ?? 0
+        return (totalSize > 0 ? totalSize : nil, latestDate)
     }
 
     private static func gzipSingleEntryName(for archiveURL: URL) -> String {
@@ -422,8 +368,8 @@ enum ArchiveContentLoader {
     private static func buildTopLevelItems(
         from entries: [String],
         archiveURL: URL,
-        entries allEntries: [ListingEntry],
-        metadata: [String: ListingEntry]
+        metadata: [String: ListingEntry],
+        rollup: [String: FolderRollup]
     ) -> [FileItem] {
         var topLevelNames = Set<String>()
         var items: [FileItem] = []
@@ -442,8 +388,8 @@ enum ArchiveContentLoader {
                 let entryMeta = resolvedMetadata(
                     for: relativePath,
                     isDirectory: isDir,
-                    entries: allEntries,
-                    metadata: metadata
+                    metadata: metadata,
+                    rollup: rollup
                 )
                 items.append(makeArchiveItem(
                     archiveURL: archiveURL,
@@ -456,7 +402,7 @@ enum ArchiveContentLoader {
             } else if !topLevelNames.contains(first) {
                 topLevelNames.insert(first)
                 let relativePath = "\(first)/"
-                let entryMeta = folderMetadata(for: relativePath, entries: allEntries, metadata: metadata)
+                let entryMeta = folderMetadata(for: relativePath, metadata: metadata, rollup: rollup)
                 items.append(makeArchiveItem(
                     archiveURL: archiveURL,
                     name: first,
@@ -475,8 +421,8 @@ enum ArchiveContentLoader {
         from entries: [String],
         archiveURL: URL,
         relativePath: String,
-        entries allEntries: [ListingEntry],
-        metadata: [String: ListingEntry]
+        metadata: [String: ListingEntry],
+        rollup: [String: FolderRollup]
     ) -> [FileItem] {
         let prefix = relativePath.hasSuffix("/") ? relativePath : relativePath + "/"
         var childNames = Set<String>()
@@ -501,8 +447,8 @@ enum ArchiveContentLoader {
                 let entryMeta = resolvedMetadata(
                     for: path,
                     isDirectory: isDir,
-                    entries: allEntries,
-                    metadata: metadata
+                    metadata: metadata,
+                    rollup: rollup
                 )
                 items.append(makeArchiveItem(
                     archiveURL: archiveURL,
@@ -515,7 +461,7 @@ enum ArchiveContentLoader {
             } else if !childNames.contains(first) {
                 childNames.insert(first)
                 let relativePath = prefix + first + "/"
-                let entryMeta = folderMetadata(for: relativePath, entries: allEntries, metadata: metadata)
+                let entryMeta = folderMetadata(for: relativePath, metadata: metadata, rollup: rollup)
                 items.append(makeArchiveItem(
                     archiveURL: archiveURL,
                     name: first,
@@ -552,14 +498,6 @@ enum ArchiveContentLoader {
         return wrapped ? prefix : nil
     }
 
-    private static func localizedKind(forFileName name: String) -> String {
-        let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
-        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else {
-            return "Document"
-        }
-        return type.localizedDescription ?? "Document"
-    }
-
     private static func makeArchiveItem(
         archiveURL: URL,
         name: String,
@@ -575,7 +513,7 @@ enum ArchiveContentLoader {
             size: size,
             modificationDate: modificationDate,
             creationDate: nil,
-            kind: isDirectory ? "Folder" : localizedKind(forFileName: name),
+            kind: FileKindLabel.label(isDirectory: isDirectory, fileName: name),
             relativePath: relativePath,
             isArchiveEntry: true
         )

@@ -2,81 +2,50 @@ import SwiftUI
 
 struct ExtensionPageView: View {
     var body: some View {
-        VisualPageScroll {
-            VStack(spacing: 28) {
-                VisualHeroBanner(
-                    title: "Extension",
-                    subtitle: "Enable Dirscope once in System Settings.",
-                    systemImage: "puzzlepiece.extension.fill"
+        SettingsPage(
+            title: "Extension",
+            systemImage: "puzzlepiece.extension",
+            subtitle: "Turn Dirscope on so Finder can use it."
+        ) {
+            SettingsGroup {
+                SettingsBlock(
+                    title: "Go to System Settings",
+                    message: "Open General → Login Items & Extensions, then choose Quick Look.",
+                    systemImage: "1.circle"
                 )
+                SettingsBlock(
+                    title: "Activate Dirscope",
+                    message: "Switch on \(AppBranding.extensionDisplayName) so Finder can use it.",
+                    systemImage: "2.circle",
+                    showsDivider: true
+                )
+                SettingsBlock(
+                    title: "Adjust Appearance and Behaviors",
+                    message: "Set the default layout, text size, and folder listing rules. They apply the next time Quick Look opens.",
+                    systemImage: "3.circle",
+                    showsDivider: true
+                )
+            }
 
-                VisualGlassPanel(tint: AppBranding.accent, delay: 0.05) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        VisualStepRow(
-                            number: 1,
-                            icon: "gearshape.fill",
-                            tint: AppBranding.accent,
-                            title: "Go to System Settings",
-                            detail: "Open General → Login Items & Extensions, then choose Quick Look.",
-                            delay: 0.08
-                        )
-                        VisualStepRow(
-                            number: 2,
-                            icon: "switch.2",
-                            tint: AppBranding.accentSecondary,
-                            title: "Activate Dirscope",
-                            detail: "Switch on \(AppBranding.extensionDisplayName) so Finder can use it.",
-                            delay: 0.12
-                        )
-                        VisualStepRow(
-                            number: 3,
-                            icon: "paintbrush.fill",
-                            tint: AppBranding.accent,
-                            title: "Adjust Appearance and Behaviors",
-                            detail: "Set your default layout, text size, and folder listing rules.",
-                            delay: 0.16
-                        )
+            SettingsActionButton(title: "Open System Settings") {
+                ExtensionSettings.openQuickLookExtensions()
+            }
+            .padding(.top, 18)
 
-                        VisualPrimaryButton(title: "Open System Settings", systemImage: "arrow.up.forward.app") {
-                            ExtensionSettings.openQuickLookExtensions()
-                        }
-                        .padding(.top, 4)
-                    }
-                }
+            SettingsSectionLabel(title: "After enabling")
 
-                VisualGlassPanel(tint: AppBranding.accentSecondary, delay: 0.2) {
-                    HStack(alignment: .top, spacing: 14) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(AppBranding.accentSecondary)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("After enabling")
-                                .font(.headline)
-                            Text("If Quick Look still shows the default folder preview, close the panel and try again. macOS may need a moment to register the new extension.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-
-                VisualGlassPanel(tint: AppBranding.accent, delay: 0.24) {
-                    HStack(alignment: .top, spacing: 14) {
-                        Image(systemName: "archivebox.fill")
-                            .font(.title2)
-                            .foregroundStyle(AppBranding.accent)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Archives & background helper")
-                                .font(.headline)
-                            Text("Dirscope can browse zip and tar archives directly in Quick Look. Opening a file from inside an archive uses a lightweight Launch Agent installed with the app. Check Behaviors in the sidebar to confirm the helper is running, or reinstall it if open-in-app stops working.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
+            SettingsGroup {
+                SettingsBlock(
+                    title: "If the old preview is still showing",
+                    message: "Close the Quick Look panel and try again. macOS may need a moment to register the new extension.",
+                    systemImage: "arrow.clockwise"
+                )
+                SettingsBlock(
+                    title: "Archives and the background helper",
+                    message: "Opening a file from inside an archive uses a lightweight Launch Agent installed with the app. Behaviors shows whether that helper is running.",
+                    systemImage: "gearshape",
+                    showsDivider: true
+                )
             }
         }
     }

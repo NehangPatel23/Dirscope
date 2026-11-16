@@ -1,25 +1,30 @@
 import SwiftUI
 
-/// macOS Settings window (⌘,) — mirrors in-app Appearance and Behaviors pages.
+/// macOS Settings window (⌘,) — same Appearance and Behaviors controls as the main window.
 struct SettingsView: View {
     var body: some View {
-        VisualPageFill(maxWidth: 820) {
-            VStack(spacing: 20) {
-                VisualHeroBanner(
-                    title: "Settings",
-                    subtitle: "Appearance and browsing preferences.",
-                    style: .compact,
-                    systemImage: "gearshape.fill"
-                )
-
+        TabView {
+            ScrollView {
                 AppearanceSettingsView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 20)
+                    .frame(width: 560, alignment: .topLeading)
+            }
+            .tabItem {
+                Label("Appearance", systemImage: "sun.max")
+            }
 
+            ScrollView {
                 BehaviorsSettingsView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 20)
+                    .frame(width: 560, alignment: .topLeading)
+            }
+            .tabItem {
+                Label("Behaviors", systemImage: "slider.horizontal.3")
             }
         }
-        .frame(width: 640, height: 680)
+        .frame(width: 560, height: 480)
     }
 }
 

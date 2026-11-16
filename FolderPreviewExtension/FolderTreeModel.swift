@@ -21,8 +21,15 @@ final class FolderTreeModel {
         rootItems = items
         expandedIDs.removeAll()
         childrenByID.removeAll()
-        if PreviewSettings.expandChildFolders {
-            autoExpandAll()
+        rebuildDisplayRows()
+    }
+
+    /// Expands containers that were loaded off the main thread.
+    func installPreloadedChildren(_ children: [String: [FileItem]]) {
+        guard !children.isEmpty else { return }
+        for (id, kids) in children {
+            childrenByID[id] = kids
+            expandedIDs.insert(id)
         }
         rebuildDisplayRows()
     }
@@ -31,9 +38,14 @@ final class FolderTreeModel {
         expandedIDs.contains(itemID)
     }
 
-    /// Synchronously toggles a folder. Returns the row index that changed, and inserted row range if expanded.
-    @discardableResult
-    func toggleFolder(itemID: String) -> (parentRow: Int, insertedRange: Range<Int>?)? {
+    enum Toggle {
+        case updated
+        case needsChildren(FileItem)
+    }
+
+    /// Collapses immediately. Expanding a folder whose children are not loaded yet
+    /// returns `.needsChildren` so the caller can read the disk off the main thread.
+    func toggleFolder(itemID: String) -> Toggle? {
         guard let parentRow = displayRows.firstIndex(where: { $0.item.id == itemID }) else { return nil }
 
         let row = displayRows[parentRow]
@@ -42,56 +54,42 @@ final class FolderTreeModel {
         if expandedIDs.contains(itemID) {
             collapse(itemID: itemID)
             rebuildDisplayRows()
-            return (parentRow, nil)
+            return .updated
         }
 
         guard row.depth < maxExpandDepth else { return nil }
 
         if childrenByID[itemID] == nil {
-            let children = loadChildren(for: row.item)
-            childrenByID[itemID] = children
+            return .needsChildren(row.item)
         }
 
-        let countBefore = displayRows.count
         expandedIDs.insert(itemID)
         rebuildDisplayRows()
-
-        let countAfter = displayRows.count
-        let inserted: Range<Int>? = countAfter > countBefore
-            ? (parentRow + 1)..<(parentRow + 1 + (countAfter - countBefore))
-            : nil
-        return (parentRow, inserted)
+        return .updated
     }
 
-    func applySort() {
-        rootItems = FolderContentLoader.sorted(rootItems)
-        for id in Array(childrenByID.keys) {
-            childrenByID[id] = FolderContentLoader.sorted(childrenByID[id] ?? [])
-        }
+    func completeExpansion(of itemID: String, children: [FileItem]) {
+        childrenByID[itemID] = children
+        expandedIDs.insert(itemID)
         rebuildDisplayRows()
     }
 
-    var allVisibleItems: [FileItem] {
-        displayRows.map(\.item)
-    }
-
-    private func autoExpandAll() {
-        func expandDirectories(_ items: [FileItem], depth: Int) {
-            guard depth < PreviewSettings.folderDepth else { return }
-            for item in items where item.isContainer {
-                if childrenByID[item.id] == nil {
-                    childrenByID[item.id] = loadChildren(for: item)
-                }
-                expandedIDs.insert(item.id)
-                if let children = childrenByID[item.id] {
-                    expandDirectories(children, depth: depth + 1)
-                }
+    /// Reads descendant listings without touching model state. Safe to call off the main thread.
+    static func preloadedChildren(of items: [FileItem], depth: Int = 0) -> [String: [FileItem]] {
+        guard PreviewSettings.expandChildFolders, depth < PreviewSettings.folderDepth else { return [:] }
+        var result: [String: [FileItem]] = [:]
+        for item in items where item.isContainer {
+            let loaded = children(of: item)
+            result[item.id] = loaded
+            let nested = preloadedChildren(of: loaded, depth: depth + 1)
+            for (id, value) in nested {
+                result[id] = value
             }
         }
-        expandDirectories(rootItems, depth: 0)
+        return result
     }
 
-    private func loadChildren(for item: FileItem) -> [FileItem] {
+    static func children(of item: FileItem) -> [FileItem] {
         let children: [FileItem]
         if item.isBrowsableArchive && item.isArchiveEntry {
             guard let nestedArchive = ArchiveContentLoader.extractEntryToTempFile(
@@ -110,6 +108,18 @@ final class FolderTreeModel {
             children = FolderContentLoader.loadImmediateChildren(of: item.url)
         }
         return FolderContentLoader.sorted(children)
+    }
+
+    func applySort() {
+        rootItems = FolderContentLoader.sorted(rootItems)
+        for id in Array(childrenByID.keys) {
+            childrenByID[id] = FolderContentLoader.sorted(childrenByID[id] ?? [])
+        }
+        rebuildDisplayRows()
+    }
+
+    var allVisibleItems: [FileItem] {
+        displayRows.map(\.item)
     }
 
     private func collapse(itemID: String) {

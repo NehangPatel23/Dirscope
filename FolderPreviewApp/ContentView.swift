@@ -28,9 +28,10 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(SettingsChrome.canvas)
         }
-        .frame(minWidth: 820, minHeight: 560)
+        .frame(minWidth: 860, minHeight: 560)
+        .background(SettingsChrome.sidebar)
     }
 }
 
@@ -53,19 +54,19 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .extensionSetup: return "Extension"
         case .appearance: return "Appearance"
         case .behaviors: return "Behaviors"
-        case .about: return "About Dirscope"
+        case .about: return "About"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .dashboard: return "square.grid.2x2"
-        case .introduction: return "text.book.closed.fill"
-        case .quickLook: return "eye.fill"
-        case .extensionSetup: return "puzzlepiece.extension.fill"
-        case .appearance: return "paintbrush.fill"
-        case .behaviors: return "arrow.triangle.branch"
-        case .about: return "info.circle.fill"
+        case .dashboard: return "speedometer"
+        case .introduction: return "text.book.closed"
+        case .quickLook: return "eye"
+        case .extensionSetup: return "puzzlepiece.extension"
+        case .appearance: return "sun.max"
+        case .behaviors: return "slider.horizontal.3"
+        case .about: return "info.circle"
         }
     }
 }

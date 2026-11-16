@@ -10,6 +10,28 @@ enum PreviewTheme {
     static var contentInset: CGFloat { 12 }
     static var cornerRadius: CGFloat { 8 }
 
+    static var sourceEditorBackground: NSColor {
+        NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return dark
+                ? NSColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1)
+                : NSColor(srgbRed: 0.975, green: 0.975, blue: 0.98, alpha: 1)
+        }
+    }
+
+    static var sourceGutterBackground: NSColor {
+        NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return dark
+                ? NSColor(srgbRed: 0.09, green: 0.09, blue: 0.10, alpha: 1)
+                : NSColor(srgbRed: 0.94, green: 0.94, blue: 0.95, alpha: 1)
+        }
+    }
+
+    static var sourceEditorFont: NSFont {
+        .monospacedSystemFont(ofSize: 12, weight: .regular)
+    }
+
     /// Horizontal inset per nesting level in the folder tree.
     static var treeIndentPerLevel: CGFloat { 28 }
     static var disclosureColumnWidth: CGFloat { 18 }
@@ -59,7 +81,7 @@ enum PreviewLayout {
     static let defaultHeight: CGFloat = 720
 
     /// Right-hand file preview column (~36% of default width).
-    static let previewPaneWidth: CGFloat = 440
+    static let previewPaneWidth: CGFloat = 520
 
     static var contentSize: NSSize {
         NSSize(width: defaultWidth, height: defaultHeight)

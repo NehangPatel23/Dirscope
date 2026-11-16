@@ -2,42 +2,35 @@ import SwiftUI
 
 struct DashboardView: View {
     var body: some View {
-        VisualPageScroll {
-            VStack(spacing: 32) {
-                VisualHeroBanner(
-                    title: AppBranding.name,
-                    subtitle: "Folder previews, built for Finder",
-                    style: .featured,
-                    showAppIcon: true,
-                    showKeyCaps: true
+        SettingsPage(
+            title: "Dashboard",
+            systemImage: "square.grid.2x2",
+            subtitle: "See what’s inside a folder from Finder, without opening another window."
+        ) {
+            SettingsGroup {
+                SettingsBlock(
+                    title: "Browse in place",
+                    message: "Select a folder in Finder and press Space or ⌘Y. Dirscope lists the contents in Quick Look.",
+                    systemImage: "folder"
                 )
-
-                HStack(spacing: 16) {
-                    VisualHighlightCard(
-                        icon: "folder.badge.gearshape",
-                        tint: AppBranding.accent,
-                        title: "Browse folders",
-                        subtitle: "See files without opening a window",
-                        delay: 0.05
-                    )
-                    VisualHighlightCard(
-                        icon: "doc.zipper",
-                        tint: AppBranding.accentSecondary,
-                        title: "Open archives",
-                        subtitle: "Zip, tar, 7z & more — no extracting",
-                        delay: 0.12
-                    )
-                    VisualHighlightCard(
-                        icon: "sidebar.right",
-                        tint: AppBranding.accent,
-                        title: "Preview files",
-                        subtitle: "Read documents in the side panel",
-                        delay: 0.19
-                    )
-                }
-
-                VisualQuickStartFlow()
+                SettingsBlock(
+                    title: "Open archives",
+                    message: "Zip, tar, gz, xz, 7z, and rar preview like folders. Expand them in the list, then open a file in its real app.",
+                    systemImage: "doc.zipper",
+                    showsDivider: true
+                )
+                SettingsBlock(
+                    title: "Inspect a file",
+                    message: "Click a file to read source with syntax color, a Word, Excel, or PowerPoint document, or an image with its dimensions.",
+                    systemImage: "doc.text.magnifyingglass",
+                    showsDivider: true
+                )
             }
+
+            SettingsActionButton(title: "Open Quick Look settings") {
+                ExtensionSettings.openQuickLookExtensions()
+            }
+            .padding(.top, 18)
         }
     }
 }

@@ -4,54 +4,63 @@ struct AppearanceSettingsView: View {
     @State private var viewMode = PreviewSettings.viewMode.rawValue
     @State private var textSize = PreviewSettings.textSize.rawValue
     @State private var showPathBar = PreviewSettings.showPathBar
+
     var body: some View {
-        Form {
-            Section("Layout") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Picker("Default view", selection: $viewMode) {
-                        Text("List").tag(PreviewViewMode.list.rawValue)
-                        Text("Icons").tag(PreviewViewMode.icon.rawValue)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: viewMode) { PreviewSettings.viewMode = PreviewViewMode(rawValue: $0) ?? .list }
-
-                    SettingHint("Starts each Quick Look session in list or icon view.")
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsGroup {
+                SettingsControlRow(
+                    title: "Default view",
+                    subtitle: "Shown when opening a directory."
+                ) {
+                Picker("Default view", selection: $viewMode) {
+                    Text("List").tag(PreviewViewMode.list.rawValue)
+                    Text("Icons").tag(PreviewViewMode.icon.rawValue)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 168)
+                .onChange(of: viewMode) { PreviewSettings.viewMode = PreviewViewMode(rawValue: $0) ?? .list }
+            }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Picker("Text size", selection: $textSize) {
-                        ForEach(PreviewTextSize.allCases) { size in
-                            Text(size.title).tag(size.rawValue)
-                        }
+                SettingsControlRow(
+                    title: "Text size",
+                    subtitle: "Default text size for lists and details.",
+                    showsDivider: true
+                ) {
+                Picker("Text size", selection: $textSize) {
+                    ForEach(PreviewTextSize.allCases) { size in
+                        Text(size.compactTitle).tag(size.rawValue)
                     }
-                    .pickerStyle(.segmented)
-                    .onChange(of: textSize) { PreviewSettings.textSize = PreviewTextSize(rawValue: $0) ?? .small }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 168)
+                .onChange(of: textSize) { PreviewSettings.textSize = PreviewTextSize(rawValue: $0) ?? .small }
+            }
 
-                    SettingHint("Makes rows, labels, and icons larger or smaller throughout the preview.")
+                SettingsControlRow(
+                    title: "Path breadcrumb",
+                    subtitle: "Show full path as breadcrumb in window title.",
+                    showsDivider: true
+                ) {
+                Toggle("Path breadcrumb", isOn: $showPathBar)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .onChange(of: showPathBar) { PreviewSettings.showPathBar = $0 }
                 }
             }
 
-            Section("Chrome") {
-                Toggle(isOn: $showPathBar) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Show path breadcrumb")
-                        SettingHint("Displays the current folder path above the status bar.")
-                    }
-                }
-                .onChange(of: showPathBar) { PreviewSettings.showPathBar = $0 }
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12))
+                Text("Right-click a column header in the preview to show or hide fields.")
+                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            Section {
-                Text("Right-click any column header in the preview to show or hide metadata columns.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .padding(.top, 14)
+            .padding(.leading, 4)
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .scrollDisabled(true)
-        .background(Color.clear)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onReceive(NotificationCenter.default.publisher(for: .previewSettingsDidChange)) { _ in
             reloadFromStore()
         }
@@ -67,6 +76,8 @@ struct AppearanceSettingsView: View {
 }
 
 #Preview {
-    AppearanceSettingsView()
-        .padding()
+    SettingsPage(title: "Appearance") {
+        AppearanceSettingsView()
+    }
+    .frame(width: 720, height: 420)
 }

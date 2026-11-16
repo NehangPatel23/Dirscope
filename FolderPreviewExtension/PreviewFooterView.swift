@@ -1,19 +1,27 @@
 import AppKit
 
 final class PreviewFooterView: NSView {
-    static let preferredHeight: CGFloat = 64
-    static let bottomInset: CGFloat = 8
+    static let preferredHeight: CGFloat = 52
+    static let bottomInset: CGFloat = 0
 
     static var totalHeight: CGFloat { preferredHeight + bottomInset }
 
     var onViewModeChanged: ((PreviewViewMode) -> Void)?
     var onIconZoomChanged: ((Double) -> Void)?
+    var onOpenRequested: (() -> Void)?
+    var onMoveSelection: ((Int) -> Void)?
 
-    private let pathScrollView = NSScrollView()
-    private let pathStack = NSStackView()
-    private let statusLabel = NSTextField(labelWithString: "")
+    private let pathIcon = NSImageView()
+    private let pathLabel = NSTextField(labelWithString: "")
+    private let pathGroup = NSStackView()
+    private let trailingStack = NSStackView()
     private let viewModeControl = NSSegmentedControl()
+    private let navUpButton = NSButton()
+    private let navDownButton = NSButton()
+    private let zoomOutIcon = NSImageView()
     private let zoomSlider = NSSlider()
+    private let zoomInIcon = NSImageView()
+    private let openButton = NSButton(title: "Open with Dirscope…", target: nil, action: nil)
     private let topSeparator = NSBox()
 
     override init(frame frameRect: NSRect) {
@@ -33,16 +41,10 @@ final class PreviewFooterView: NSView {
         showPathBar: Bool,
         iconZoom: Double
     ) {
-        pathScrollView.isHidden = !showPathBar
-        statusLabel.stringValue = statusText
-
-        pathStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for (index, component) in pathComponents.enumerated() {
-            if index > 0 {
-                pathStack.addArrangedSubview(makeSeparatorLabel())
-            }
-            pathStack.addArrangedSubview(makePathButton(component))
-        }
+        let showPath = showPathBar && !pathComponents.isEmpty
+        pathGroup.isHidden = !showPath
+        pathLabel.stringValue = Self.pathTitle(from: pathComponents)
+        pathLabel.toolTip = statusText
 
         let modeIndex = PreviewViewMode.allCases.firstIndex(of: viewMode) ?? 0
         if viewModeControl.selectedSegment != modeIndex {
@@ -50,7 +52,11 @@ final class PreviewFooterView: NSView {
         }
 
         zoomSlider.doubleValue = iconZoom
-        zoomSlider.isHidden = viewMode != .icon
+    }
+
+    func setOpenEnabled(_ enabled: Bool) {
+        openButton.isHidden = !enabled
+        openButton.isEnabled = enabled
     }
 
     func refreshAppearance() {
@@ -68,107 +74,169 @@ final class PreviewFooterView: NSView {
         topSeparator.boxType = .separator
         topSeparator.translatesAutoresizingMaskIntoConstraints = false
 
-        pathScrollView.translatesAutoresizingMaskIntoConstraints = false
-        pathScrollView.hasVerticalScroller = false
-        pathScrollView.hasHorizontalScroller = true
-        pathScrollView.autohidesScrollers = true
-        pathScrollView.drawsBackground = false
-        pathScrollView.borderType = .noBorder
-        pathScrollView.scrollerStyle = .overlay
+        pathIcon.translatesAutoresizingMaskIntoConstraints = false
+        pathIcon.imageScaling = .scaleProportionallyDown
+        pathIcon.contentTintColor = .secondaryLabelColor
+        pathIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Path")
+        pathIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
 
-        pathStack.orientation = .horizontal
-        pathStack.alignment = .centerY
-        pathStack.spacing = 2
-        pathStack.translatesAutoresizingMaskIntoConstraints = false
-        pathScrollView.documentView = pathStack
+        pathLabel.translatesAutoresizingMaskIntoConstraints = false
+        pathLabel.font = .systemFont(ofSize: 12)
+        pathLabel.textColor = .secondaryLabelColor
+        pathLabel.lineBreakMode = .byTruncatingHead
+        pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        pathLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = .systemFont(ofSize: 11)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.alignment = .center
+        pathGroup.translatesAutoresizingMaskIntoConstraints = false
+        pathGroup.orientation = .horizontal
+        pathGroup.alignment = .centerY
+        pathGroup.spacing = 6
+        pathGroup.detachesHiddenViews = true
+        pathGroup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        trailingStack.orientation = .horizontal
+        trailingStack.alignment = .centerY
+        trailingStack.spacing = 12
+        trailingStack.detachesHiddenViews = true
+        trailingStack.translatesAutoresizingMaskIntoConstraints = false
+        trailingStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         viewModeControl.segmentCount = 2
-        viewModeControl.setImage(NSImage(systemSymbolName: "list.bullet", accessibilityDescription: "List"), forSegment: 0)
-        viewModeControl.setImage(NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Icons"), forSegment: 1)
-        viewModeControl.segmentStyle = .automatic
+        viewModeControl.setLabel("List", forSegment: 0)
+        viewModeControl.setLabel("Icons", forSegment: 1)
+        viewModeControl.segmentStyle = .rounded
         viewModeControl.trackingMode = .selectOne
+        viewModeControl.controlSize = .regular
         viewModeControl.translatesAutoresizingMaskIntoConstraints = false
         viewModeControl.target = self
         viewModeControl.action = #selector(viewModeChanged)
+        viewModeControl.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        configureNavButton(navUpButton, symbol: "chevron.up", description: "Previous item", action: #selector(navigateUp))
+        configureNavButton(navDownButton, symbol: "chevron.down", description: "Next item", action: #selector(navigateDown))
+
+        configureZoomIcon(zoomOutIcon, symbol: "minus.magnifyingglass", description: "Zoom out")
+        configureZoomIcon(zoomInIcon, symbol: "plus.magnifyingglass", description: "Zoom in")
 
         zoomSlider.minValue = 0.6
         zoomSlider.maxValue = 1.6
         zoomSlider.translatesAutoresizingMaskIntoConstraints = false
         zoomSlider.target = self
         zoomSlider.action = #selector(zoomChanged)
+        zoomSlider.isContinuous = true
+
+        openButton.translatesAutoresizingMaskIntoConstraints = false
+        openButton.bezelStyle = .rounded
+        openButton.controlSize = .regular
+        openButton.font = .systemFont(ofSize: 13)
+        openButton.target = self
+        openButton.action = #selector(openRequested)
+        openButton.isHidden = true
+        openButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        pathIcon.widthAnchor.constraint(equalToConstant: 14).isActive = true
+        pathIcon.heightAnchor.constraint(equalToConstant: 14).isActive = true
+        pathGroup.addArrangedSubview(pathIcon)
+        pathGroup.addArrangedSubview(pathLabel)
+        trailingStack.addArrangedSubview(pathGroup)
+        trailingStack.addArrangedSubview(openButton)
 
         addSubview(topSeparator)
-        addSubview(pathScrollView)
-        addSubview(statusLabel)
         addSubview(viewModeControl)
+        addSubview(navUpButton)
+        addSubview(navDownButton)
+        addSubview(zoomOutIcon)
         addSubview(zoomSlider)
+        addSubview(zoomInIcon)
+        addSubview(trailingStack)
 
         NSLayoutConstraint.activate([
             topSeparator.topAnchor.constraint(equalTo: topAnchor),
             topSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
             topSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
 
-            pathScrollView.topAnchor.constraint(equalTo: topSeparator.bottomAnchor, constant: 8),
-            pathScrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            pathScrollView.trailingAnchor.constraint(equalTo: viewModeControl.leadingAnchor, constant: -8),
-            pathScrollView.heightAnchor.constraint(equalToConstant: 22),
+            viewModeControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            viewModeControl.centerYAnchor.constraint(equalTo: centerYAnchor),
+            viewModeControl.widthAnchor.constraint(equalToConstant: 148),
 
-            pathStack.topAnchor.constraint(equalTo: pathScrollView.contentView.topAnchor),
-            pathStack.leadingAnchor.constraint(equalTo: pathScrollView.contentView.leadingAnchor),
-            pathStack.trailingAnchor.constraint(greaterThanOrEqualTo: pathScrollView.contentView.trailingAnchor),
-            pathStack.heightAnchor.constraint(equalTo: pathScrollView.contentView.heightAnchor),
+            navUpButton.leadingAnchor.constraint(equalTo: viewModeControl.trailingAnchor, constant: 10),
+            navUpButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            navUpButton.widthAnchor.constraint(equalToConstant: 28),
+            navUpButton.heightAnchor.constraint(equalToConstant: 24),
 
-            statusLabel.topAnchor.constraint(equalTo: pathScrollView.bottomAnchor, constant: 6),
-            statusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            navDownButton.leadingAnchor.constraint(equalTo: navUpButton.trailingAnchor, constant: 4),
+            navDownButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            navDownButton.widthAnchor.constraint(equalToConstant: 28),
+            navDownButton.heightAnchor.constraint(equalToConstant: 24),
 
-            viewModeControl.centerYAnchor.constraint(equalTo: pathScrollView.centerYAnchor),
-            viewModeControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            viewModeControl.widthAnchor.constraint(equalToConstant: 68),
+            zoomSlider.centerXAnchor.constraint(equalTo: centerXAnchor),
+            zoomSlider.centerYAnchor.constraint(equalTo: centerYAnchor),
+            zoomSlider.widthAnchor.constraint(equalToConstant: 132),
 
-            zoomSlider.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
-            zoomSlider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            zoomSlider.widthAnchor.constraint(equalToConstant: 90),
+            zoomOutIcon.centerYAnchor.constraint(equalTo: zoomSlider.centerYAnchor),
+            zoomOutIcon.trailingAnchor.constraint(equalTo: zoomSlider.leadingAnchor, constant: -6),
+            zoomOutIcon.widthAnchor.constraint(equalToConstant: 16),
+            zoomOutIcon.heightAnchor.constraint(equalToConstant: 16),
+
+            zoomInIcon.centerYAnchor.constraint(equalTo: zoomSlider.centerYAnchor),
+            zoomInIcon.leadingAnchor.constraint(equalTo: zoomSlider.trailingAnchor, constant: 6),
+            zoomInIcon.widthAnchor.constraint(equalToConstant: 16),
+            zoomInIcon.heightAnchor.constraint(equalToConstant: 16),
+
+            trailingStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            trailingStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            trailingStack.leadingAnchor.constraint(greaterThanOrEqualTo: zoomInIcon.trailingAnchor, constant: 16),
 
             heightAnchor.constraint(equalToConstant: Self.preferredHeight)
         ])
     }
 
-    private func makeSeparatorLabel() -> NSTextField {
-        let label = NSTextField(labelWithString: "›")
-        label.font = .systemFont(ofSize: 11, weight: .medium)
-        label.textColor = .tertiaryLabelColor
-        return label
+    private func configureNavButton(_ button: NSButton, symbol: String, description: String, action: Selector) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.bezelStyle = .flexiblePush
+        button.controlSize = .small
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
+        button.imagePosition = .imageOnly
+        button.toolTip = description
+        button.target = self
+        button.action = action
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
-    private func makePathButton(_ component: PathComponent) -> NSButton {
-        let button = NSButton(title: component.name, target: nil, action: nil)
-        button.isBordered = false
-        button.font = .systemFont(ofSize: 11)
-        button.image = component.icon
-        button.imagePosition = .imageLeading
-        button.imageScaling = .scaleProportionallyDown
-        button.contentTintColor = .secondaryLabelColor
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        return button
+    private func configureZoomIcon(_ view: NSImageView, symbol: String, description: String) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.imageScaling = .scaleProportionallyDown
+        view.contentTintColor = .secondaryLabelColor
+        view.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
+    }
+
+    private static func pathTitle(from components: [PathComponent]) -> String {
+        let names = components.map(\.name).filter { !$0.isEmpty }
+        guard !names.isEmpty else { return "" }
+        return names.joined(separator: "  ›  ") + "  ›"
     }
 
     @objc private func viewModeChanged() {
         let mode = PreviewViewMode.allCases[viewModeControl.selectedSegment]
         PreviewSettings.viewMode = mode
-        zoomSlider.isHidden = mode != .icon
         onViewModeChanged?(mode)
     }
 
     @objc private func zoomChanged() {
         PreviewSettings.iconZoom = zoomSlider.doubleValue
         onIconZoomChanged?(zoomSlider.doubleValue)
+    }
+
+    @objc private func openRequested() {
+        onOpenRequested?()
+    }
+
+    @objc private func navigateUp() {
+        onMoveSelection?(-1)
+    }
+
+    @objc private func navigateDown() {
+        onMoveSelection?(1)
     }
 }
 

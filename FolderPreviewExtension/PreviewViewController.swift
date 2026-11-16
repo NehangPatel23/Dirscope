@@ -1,6 +1,42 @@
 import AppKit
 import QuickLookUI
 
+enum AgentDebugLog {
+    // #region agent log
+    static func write(location: String, message: String, hypothesisId: String, data: [String: Any] = [:]) {
+        let payload: [String: Any] = [
+            "sessionId": "ff7b87",
+            "runId": "run1",
+            "hypothesisId": hypothesisId,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+        ]
+        guard JSONSerialization.isValidJSONObject(payload),
+              let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        var line = body
+        line.append(0x0A)
+        let url = URL(fileURLWithPath: "/Users/nehangpatel/Desktop/Dirscope - Folder Preview App/.cursor/debug-ff7b87.log")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(line)
+            try? handle.close()
+        }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:7675/ingest/b7ff33ef-71a8-43e2-9d29-6c51f218e667")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("ff7b87", forHTTPHeaderField: "X-Debug-Session-Id")
+        request.httpBody = body
+        URLSession.shared.dataTask(with: request).resume()
+    }
+    // #endregion
+}
+
 final class PreviewViewController: NSViewController, QLPreviewingController, QLPreviewPanelDelegate {
     private let tableView = FolderContentsTableView()
     private let collectionView = FolderContentsCollectionView()
@@ -16,6 +52,9 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
     private var settingsDarwinObserver: UnsafeMutableRawPointer?
     private var isApplyingSettingsChange = false
     private var archiveDoubleClickMonitor: Any?
+    private var keyMonitor: Any?
+    private var lastHandledArrow: (time: TimeInterval, keyCode: UInt16)?
+    private var listingGeneration = 0
 
     override var nibName: NSNib.Name? { nil }
 
@@ -36,6 +75,17 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
             self.previewPane.refreshAppearance()
             self.footerView.refreshAppearance()
         }
+        rootView.onKeyDown = { [weak self] event in
+            self?.handleNavigationKey(event) ?? false
+        }
+        rootView.onMoveToWindow = { [weak self] in
+            self?.installKeyMonitor()
+            self?.focusFileList()
+        }
+        installKeyMonitor()
+        // #region agent log
+        AgentDebugLog.write(location: "PreviewViewController.loadView", message: "preview controller loaded", hypothesisId: "H8")
+        // #endregion
 
         NotificationCenter.default.addObserver(
             self,
@@ -56,45 +106,57 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
             securityScopedURL = url
         }
 
-        currentURL = url.resolvingSymlinksInPath()
-        isArchive = ArchiveContentLoader.isArchive(url)
+        let previewURL = url.resolvingSymlinksInPath()
+        let archive = ArchiveContentLoader.isArchive(url)
+        listingGeneration += 1
+        let generation = listingGeneration
 
-        let previewURL = currentURL!
-        let sorted: [FileItem]
-        if isArchive {
-            sorted = FolderContentLoader.sorted(ArchiveContentLoader.loadContents(of: previewURL))
-        } else {
-            sorted = FolderContentLoader.sorted(FolderContentLoader.loadContents(of: previewURL))
-        }
+        let sorted = await Self.loadListing(of: previewURL, archive: archive)
+        guard generation == listingGeneration else { return }
 
-        await MainActor.run {
-            PreviewSettings.reloadFromDisk()
-            rootItems = sorted
-            applySettings(reloadColumns: false)
-            tableView.setRootItems(sorted)
-            collectionView.items = sorted
-            previewPane.show(item: nil)
-            refreshFooter()
-            updateVisibleContent(itemsEmpty: sorted.isEmpty)
-            applyPreferredPanelSize()
-            syncTableScrollerInsets()
-            syncTableDocumentFrame()
-            updateArchiveDoubleClickGuard()
-            updateArchivePanelControl()
-        }
+        currentURL = previewURL
+        isArchive = archive
+        PreviewSettings.reloadFromDisk()
+        rootItems = sorted
+        applySettings(reloadColumns: false)
+        tableView.setRootItems(sorted)
+        collectionView.items = sorted
+        showPreview(nil)
+        refreshFooter()
+        updateVisibleContent(itemsEmpty: sorted.isEmpty)
+        applyPreferredPanelSize()
+        syncTableScrollerInsets()
+        syncTableDocumentFrame()
+        updateArchiveDoubleClickGuard()
+        updateArchivePanelControl()
+        focusFileList()
+    }
+
+    private static func loadListing(of url: URL, archive: Bool) async -> [FileItem] {
+        await Task.detached(priority: .userInitiated) {
+            if archive {
+                return ArchiveContentLoader.loadContents(of: url)
+            }
+            return FolderContentLoader.loadContents(of: url)
+        }.value
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
         updateArchivePanelControl()
+        installKeyMonitor()
+        focusFileList()
     }
 
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
-        isArchive
+        true
     }
 
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
         panel.delegate = self
+        // #region agent log
+        AgentDebugLog.write(location: "PreviewViewController.beginPreviewPanelControl", message: "panel control began", hypothesisId: "H12")
+        // #endregion
     }
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
@@ -104,19 +166,122 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
-        guard isArchive else { return false }
+        // #region agent log
+        AgentDebugLog.write(
+            location: "PreviewViewController.previewPanel.handleEvent",
+            message: "panel event",
+            hypothesisId: "H12",
+            data: [
+                "type": Int(event.type.rawValue),
+                "keyCode": Int(event.keyCode),
+                "isArchive": isArchive,
+                "selected": tableView.selectedRow
+            ]
+        )
+        // #endregion
 
-        if (event.type == .leftMouseDown || event.type == .leftMouseUp), event.clickCount >= 2 {
+        if isArchive,
+           (event.type == .leftMouseDown || event.type == .leftMouseUp),
+           event.clickCount >= 2 {
             handleArchiveDoubleClick(at: event.locationInWindow)
             return true
         }
 
-        if event.type == .keyDown, event.keyCode == 36 || event.keyCode == 76 {
+        if isArchive, event.type == .keyDown, event.keyCode == 36 || event.keyCode == 76 {
             openSelectedArchiveEntry()
             return true
         }
 
+        if event.type == .keyDown, handleNavigationKey(event) {
+            return true
+        }
+
         return false
+    }
+
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            guard let self else { return event }
+            // #region agent log
+            AgentDebugLog.write(
+                location: "PreviewViewController.keyMonitor",
+                message: "local event",
+                hypothesisId: "H17",
+                data: [
+                    "type": Int(event.type.rawValue),
+                    "keyCode": Int(event.keyCode),
+                    "windowNil": event.window == nil,
+                    "viewWindowNil": self.view.window == nil,
+                    "selected": self.tableView.selectedRow
+                ]
+            )
+            // #endregion
+            guard event.type == .keyDown else { return event }
+            let dropped = event.window != nil && event.window !== self.view.window && self.view.window != nil
+            if dropped { return event }
+            return self.handleNavigationKey(event) ? nil : event
+        }
+        // #region agent log
+        AgentDebugLog.write(
+            location: "PreviewViewController.installKeyMonitor",
+            message: "local monitor ready",
+            hypothesisId: "H17",
+            data: ["acceptsPanelControl": true]
+        )
+        // #endregion
+    }
+
+    private func removeKeyMonitor() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+    }
+
+    /// Up and down move through the file list. Quick Look otherwise keeps those keys.
+    private func handleNavigationKey(_ event: NSEvent) -> Bool {
+        let delta: Int
+        switch event.keyCode {
+        case 126: delta = -1
+        case 125: delta = 1
+        default: return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) || flags.contains(.option) || flags.contains(.control) {
+            return false
+        }
+        if let textView = view.window?.firstResponder as? NSTextView, textView.isEditable {
+            return false
+        }
+        if previewPane.isHandlingMediaInteraction(for: view.window?.firstResponder) {
+            return false
+        }
+        if view.window?.firstResponder is NSSlider
+            || view.window?.firstResponder is NSSegmentedControl
+            || view.window?.firstResponder is NSPopUpButton {
+            return false
+        }
+        if lastHandledArrow?.time == event.timestamp, lastHandledArrow?.keyCode == event.keyCode {
+            return true
+        }
+        lastHandledArrow = (event.timestamp, event.keyCode)
+
+        if tableScrollView.isHidden {
+            collectionView.moveSelection(vertically: delta)
+            view.window?.makeFirstResponder(collectionView.keyboardView)
+        } else {
+            tableView.moveSelection(vertically: delta)
+            view.window?.makeFirstResponder(tableView)
+        }
+        return true
+    }
+
+    private func focusFileList() {
+        guard view.window != nil else { return }
+        let target: NSView = tableScrollView.isHidden ? collectionView.keyboardView : tableView
+        view.window?.makeFirstResponder(target)
     }
 
     private func applyPreferredPanelSize() {
@@ -157,8 +322,28 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
         footerView.onViewModeChanged = { [weak self] mode in
             self?.switchViewMode(mode)
         }
-        footerView.onIconZoomChanged = { [weak self] _ in
-            self?.collectionView.applyZoom(PreviewSettings.iconZoom)
+        footerView.onIconZoomChanged = { [weak self] value in
+            self?.collectionView.applyZoom(value)
+            self?.tableView.applyZoom(value)
+        }
+        footerView.onOpenRequested = { [weak self] in
+            self?.openSelectedArchiveEntry()
+        }
+        footerView.onMoveSelection = { [weak self] delta in
+            guard let self else { return }
+            if self.tableScrollView.isHidden {
+                self.collectionView.moveSelection(vertically: delta)
+            } else {
+                self.tableView.moveSelection(vertically: delta)
+            }
+            // #region agent log
+            AgentDebugLog.write(
+                location: "PreviewViewController.footerNav",
+                message: "footer move",
+                hypothesisId: "H18",
+                data: ["delta": delta, "selected": self.tableView.selectedRow]
+            )
+            // #endregion
         }
 
         tableView.onSortColumn = { [weak self] column in
@@ -170,11 +355,11 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
             self?.syncTableDocumentFrame()
         }
         tableView.onItemSelected = { [weak self] item in
-            self?.previewPane.show(item: item)
+            self?.showPreview(item)
         }
 
         collectionView.onItemSelected = { [weak self] item in
-            self?.previewPane.show(item: item)
+            self?.showPreview(item)
         }
 
         view.addSubview(tableScrollView)
@@ -248,25 +433,26 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
 
     private func reloadFromCurrentSettings() {
         guard let currentURL else { return }
+        listingGeneration += 1
+        let generation = listingGeneration
+        let archive = isArchive
+        let url = currentURL
 
-        let sorted: [FileItem]
-        if isArchive {
-            sorted = FolderContentLoader.sorted(ArchiveContentLoader.loadContents(of: currentURL))
-        } else {
-            sorted = FolderContentLoader.sorted(FolderContentLoader.loadContents(of: currentURL))
+        Task {
+            let sorted = await Self.loadListing(of: url, archive: archive)
+            guard generation == self.listingGeneration else { return }
+            self.rootItems = sorted
+            self.applySettings(reloadColumns: true)
+            self.tableView.setRootItems(sorted)
+            self.collectionView.items = sorted
+            self.tableView.applySort()
+            self.tableView.updateSortIndicators()
+            self.switchViewMode(PreviewSettings.viewMode)
+            self.refreshFooter()
+            self.updateVisibleContent(itemsEmpty: sorted.isEmpty)
+            self.syncTableScrollerInsets()
+            self.syncTableDocumentFrame()
         }
-
-        rootItems = sorted
-        applySettings(reloadColumns: true)
-        tableView.setRootItems(sorted)
-        collectionView.items = sorted
-        tableView.applySort()
-        tableView.updateSortIndicators()
-        switchViewMode(PreviewSettings.viewMode)
-        refreshFooter()
-        updateVisibleContent(itemsEmpty: sorted.isEmpty)
-        syncTableScrollerInsets()
-        syncTableDocumentFrame()
     }
 
     private func syncTableScrollerInsets() {
@@ -310,6 +496,13 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
         }
         collectionView.textSize = textSize
         collectionView.applyZoom(PreviewSettings.iconZoom)
+        tableView.zoom = PreviewSettings.iconZoom
+    }
+
+    private func showPreview(_ item: FileItem?) {
+        previewPane.show(item: item)
+        let canOpen = isArchive && item != nil && item?.isContainer == false
+        footerView.setOpenEnabled(canOpen)
     }
 
     private func refreshFooter() {
@@ -336,6 +529,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
         tableScrollView.isHidden = !isList
         collectionView.isHidden = isList
         refreshFooter()
+        focusFileList()
     }
 
     private func updateVisibleContent(itemsEmpty: Bool) {
@@ -366,7 +560,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
     }
 
     private func updateArchivePanelControl() {
-        guard isArchive, view.window != nil else { return }
+        guard view.window != nil else { return }
         QLPreviewPanel.shared()?.updateController()
     }
 
@@ -430,6 +624,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
     }
 
     deinit {
+        removeKeyMonitor()
         removeArchiveDoubleClickGuard()
         if let settingsDarwinObserver {
             SharedPreferencesStore.removeDarwinObserver(settingsDarwinObserver)
@@ -441,10 +636,29 @@ final class PreviewViewController: NSViewController, QLPreviewingController, QLP
 
 private final class PreviewRootView: NSView {
     var onEffectiveAppearanceChanged: (() -> Void)?
+    var onKeyDown: ((NSEvent) -> Bool)?
+    var onMoveToWindow: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onMoveToWindow?()
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         onEffectiveAppearanceChanged?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if onKeyDown?(event) == true { return }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if onKeyDown?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
     }
 }
 

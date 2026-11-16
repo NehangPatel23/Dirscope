@@ -36,6 +36,14 @@ enum PreviewTextSize: String, CaseIterable, Identifiable {
         }
     }
 
+    var compactTitle: String {
+        switch self {
+        case .small: return "S"
+        case .medium: return "M"
+        case .large: return "L"
+        }
+    }
+
     var pointSize: CGFloat {
         switch self {
         case .small: return 11

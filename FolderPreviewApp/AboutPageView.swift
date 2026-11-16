@@ -2,35 +2,56 @@ import SwiftUI
 
 struct AboutPageView: View {
     var body: some View {
-        VisualPageScroll(maxWidth: 640) {
-            VStack(spacing: 28) {
-                VisualHeroBanner(
-                    title: AppBranding.name,
-                    subtitle: "Quick Look folder viewer for macOS · Version 1.0",
-                    style: .compact,
-                    showAppIcon: true
-                )
+        SettingsPage(
+            title: "About",
+            systemImage: "info.circle",
+            subtitle: "A Quick Look folder viewer for macOS."
+        ) {
+            HStack(spacing: 16) {
+                Image(nsImage: AppBranding.appMarkImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 68, height: 68)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
 
-                HStack(spacing: 14) {
-                    capabilityTile(icon: "folder.fill", tint: AppBranding.accent, title: "Directories", delay: 0.08)
-                    capabilityTile(icon: "doc.zipper", tint: AppBranding.accentSecondary, title: "Archives", delay: 0.12)
-                }
-
-                HStack(spacing: 14) {
-                    capabilityTile(icon: "doc.richtext", tint: AppBranding.accent, title: "File viewer", delay: 0.16)
-                    capabilityTile(icon: "list.bullet.indent", tint: AppBranding.accentSecondary, title: "Folder tree", delay: 0.2)
-                }
-
-                VisualGlassPanel(tint: AppBranding.accent, delay: 0.24) {
-                    VisualPrimaryButton(title: "Open Quick Look extension settings…", systemImage: "arrow.up.forward.app") {
-                        ExtensionSettings.openQuickLookExtensions()
-                    }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(AppBranding.name)
+                        .font(.system(size: 20, weight: .semibold))
+                    Text(AppBranding.tagline)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    Text("Version 1.0")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.tertiary)
                 }
             }
-        }
-    }
+            .padding(.bottom, 18)
 
-    private func capabilityTile(icon: String, tint: Color, title: String, delay: Double) -> some View {
-        VisualHighlightCard(icon: icon, tint: tint, title: title, subtitle: "Included", delay: delay)
+            SettingsGroup {
+                SettingsBlock(
+                    title: "Directories",
+                    message: "Sortable lists, icon grids, and an expandable folder tree.",
+                    systemImage: "list.bullet"
+                )
+                SettingsBlock(
+                    title: "Archives",
+                    message: "Browse zip, tar, and other archives without extracting them first.",
+                    systemImage: "doc.zipper",
+                    showsDivider: true
+                )
+                SettingsBlock(
+                    title: "File viewer",
+                    message: "Syntax-colored source, Office text, and image details in the side panel.",
+                    systemImage: "eye",
+                    showsDivider: true
+                )
+            }
+
+            SettingsActionButton(title: "Open Quick Look settings") {
+                ExtensionSettings.openQuickLookExtensions()
+            }
+            .padding(.top, 18)
+        }
     }
 }

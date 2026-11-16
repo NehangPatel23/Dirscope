@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTheme {
-    static let sidebarWidth: CGFloat = 200
+    static let sidebarWidth: CGFloat = 220
     static let contentPadding: CGFloat = 32
     static let contentMaxWidth: CGFloat = 640
     static let cardCornerRadius: CGFloat = 14

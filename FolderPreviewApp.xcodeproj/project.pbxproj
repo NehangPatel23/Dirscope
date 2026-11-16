@@ -44,6 +44,7 @@
 		B10000000000000000000013 /* FilePreviewPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000020 /* FilePreviewPaneView.swift */; };
 		B10000000000000000000014 /* InlineFilePreviewLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000021 /* InlineFilePreviewLoader.swift */; };
 		B10000000000000000000015 /* RichTextPreviewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000022 /* RichTextPreviewSupport.swift */; };
+		B10000000000000000000021 /* OfficeDocumentPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000002E /* OfficeDocumentPreview.swift */; };
 		B1000000000000000000000A /* FolderContentsCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000013 /* FolderContentsCollectionView.swift */; };
 		B1000000000000000000000B /* PreviewSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* PreviewSettings.swift */; };
 		B1000000000000000000000C /* PreviewColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000009 /* PreviewColumn.swift */; };
@@ -125,6 +126,7 @@
 		B20000000000000000000020 /* FilePreviewPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewPaneView.swift; sourceTree = "<group>"; };
 		B20000000000000000000021 /* InlineFilePreviewLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineFilePreviewLoader.swift; sourceTree = "<group>"; };
 		B20000000000000000000022 /* RichTextPreviewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichTextPreviewSupport.swift; sourceTree = "<group>"; };
+		B2000000000000000000002E /* OfficeDocumentPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficeDocumentPreview.swift; sourceTree = "<group>"; };
 		B20000000000000000000013 /* FolderContentsCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderContentsCollectionView.swift; sourceTree = "<group>"; };
 		B20000000000000000000014 /* PreviewTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewTheme.swift; sourceTree = "<group>"; };
 		B20000000000000000000015 /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
@@ -232,6 +234,7 @@
 				B20000000000000000000014 /* PreviewTheme.swift */,
 				B20000000000000000000021 /* InlineFilePreviewLoader.swift */,
 				B20000000000000000000022 /* RichTextPreviewSupport.swift */,
+				B2000000000000000000002E /* OfficeDocumentPreview.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -395,6 +398,7 @@
 		B10000000000000000000013 /* FilePreviewPaneView.swift in Sources */,
 		B10000000000000000000014 /* InlineFilePreviewLoader.swift in Sources */,
 				B10000000000000000000015 /* RichTextPreviewSupport.swift in Sources */,
+				B10000000000000000000021 /* OfficeDocumentPreview.swift in Sources */,
 				B10000000000000000000003 /* FileItem.swift in Sources */,
 				B10000000000000000000004 /* FolderContentLoader.swift in Sources */,
 				B10000000000000000000011 /* ArchiveContentLoader.swift in Sources */,

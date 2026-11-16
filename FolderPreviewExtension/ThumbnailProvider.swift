@@ -7,11 +7,14 @@ final class ThumbnailProvider {
 
     private var cache = NSCache<NSURL, NSImage>()
     private var archiveCache = NSCache<NSString, NSImage>()
-    private let queue = DispatchQueue(label: "com.folderpreview.thumbnails", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.folderpreview.thumbnails", qos: .utility, attributes: .concurrent)
+    private let slots = DispatchSemaphore(value: 3)
+    private let scale: CGFloat
 
     private init() {
         cache.countLimit = 200
         archiveCache.countLimit = 200
+        scale = NSScreen.main?.backingScaleFactor ?? 2
     }
 
     func cachedThumbnail(for item: FileItem, size: CGFloat) -> NSImage? {
@@ -48,7 +51,9 @@ final class ThumbnailProvider {
         }
 
         queue.async {
+            self.slots.wait()
             self.generateThumbnail(at: url, size: size) { image in
+                self.slots.signal()
                 DispatchQueue.main.async {
                     if let image {
                         self.cache.setObject(image, forKey: key)
@@ -72,12 +77,14 @@ final class ThumbnailProvider {
         let key = item.id as NSString
 
         queue.async {
+            self.slots.wait()
             let ext = URL(fileURLWithPath: item.name).pathExtension.lowercased()
             if let type = UTType(filenameExtension: ext), type.conforms(to: .image),
                let data = ArchiveContentLoader.extractEntryData(from: item.url, path: item.relativePath),
                !data.isEmpty,
                let source = NSImage(data: data) {
                 let image = self.scaledImage(source, to: size)
+                self.slots.signal()
                 DispatchQueue.main.async {
                     self.archiveCache.setObject(image, forKey: key)
                     completion(image)
@@ -90,11 +97,13 @@ final class ThumbnailProvider {
                 path: item.relativePath,
                 filename: item.name
             ) else {
+                self.slots.signal()
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
 
             self.generateThumbnail(at: tempURL, size: size) { image in
+                self.slots.signal()
                 try? FileManager.default.removeItem(at: tempURL)
                 DispatchQueue.main.async {
                     if let image {
@@ -107,12 +116,11 @@ final class ThumbnailProvider {
     }
 
     private func generateThumbnail(at url: URL, size: CGFloat, completion: @escaping (NSImage?) -> Void) {
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
         let request = QLThumbnailGenerator.Request(
             fileAt: url,
             size: CGSize(width: size, height: size),
             scale: scale,
-            representationTypes: .all
+            representationTypes: .thumbnail
         )
 
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { representation, _ in

@@ -52,8 +52,14 @@ struct FileItem: Identifiable, Hashable {
 
     var formattedSize: String {
         guard let size else { return "--" }
-        return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        return Self.byteFormatter.string(fromByteCount: size)
     }
+
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
 
     var formattedDateModified: String { formatted(date: modificationDate) }
     var formattedDateCreated: String { formatted(date: creationDate) }
@@ -126,7 +132,7 @@ struct FileItem: Identifiable, Hashable {
             creationDate: resourceValues.creationDate,
             contentAccessDate: resourceValues.contentAccessDate,
             addedToDirectoryDate: resourceValues.addedToDirectoryDate,
-            kind: resourceValues.localizedTypeDescription ?? "Item",
+            kind: FileKindLabel.label(isDirectory: resourceValues.isDirectory ?? false, fileName: url.lastPathComponent),
             relativePath: relativePath.isEmpty ? url.lastPathComponent : relativePath
         )
     }
@@ -189,6 +195,42 @@ enum FileItemSummary {
     }
 
     static func formattedTotalSize(of items: [FileItem]) -> String {
-        ByteCountFormatter.string(fromByteCount: totalSize(of: items), countStyle: .file)
+        FileItem.byteCountString(totalSize(of: items))
+    }
+}
+
+enum FileKindLabel {
+    private static var cache: [String: String] = [:]
+    private static let lock = NSLock()
+
+    static func label(isDirectory: Bool, fileName: String) -> String {
+        if isDirectory { return "Folder" }
+        let ext = URL(fileURLWithPath: fileName).pathExtension.lowercased()
+        lock.lock()
+        if let cached = cache[ext] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let label: String
+        if ext.isEmpty {
+            label = "Document"
+        } else if let type = UTType(filenameExtension: ext) {
+            label = type.localizedDescription ?? ext.uppercased()
+        } else {
+            label = ext.uppercased()
+        }
+
+        lock.lock()
+        cache[ext] = label
+        lock.unlock()
+        return label
+    }
+}
+
+extension FileItem {
+    static func byteCountString(_ size: Int64) -> String {
+        byteFormatter.string(fromByteCount: size)
     }
 }

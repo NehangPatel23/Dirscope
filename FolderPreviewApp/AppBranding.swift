@@ -14,9 +14,3 @@ enum AppBranding {
     }
 }
 
-enum VisualHeroStyle {
-    /// Short, full-width strip — used on Extension, Appearance, Behaviors, etc.
-    case compact
-    /// Taller hero for the dashboard landing page.
-    case featured
-}

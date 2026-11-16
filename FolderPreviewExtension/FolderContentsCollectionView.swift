@@ -121,6 +121,31 @@ final class FolderContentsCollectionView: NSView, NSCollectionViewDataSource, NS
         openItem(at: indexPath)
     }
 
+    var keyboardView: NSView { collectionView }
+
+    func moveSelection(vertically delta: Int) {
+        guard !items.isEmpty, delta != 0 else { return }
+        let current = collectionView.selectionIndexPaths.first?.item ?? -1
+        let step = delta * columnCount()
+        let next: Int
+        if current < 0 {
+            next = delta > 0 ? 0 : items.count - 1
+        } else {
+            next = min(max(current + step, 0), items.count - 1)
+        }
+        guard next != current else { return }
+        let indexPath = IndexPath(item: next, section: 0)
+        collectionView.selectItems(at: [indexPath], scrollPosition: [.centeredVertically, .nearestHorizontalEdge])
+        onItemSelected?(items[next])
+    }
+
+    private func columnCount() -> Int {
+        let itemWidth = max(gridLayout.minimumItemSize.width, 1)
+        let spacing = gridLayout.minimumInteritemSpacing
+        let available = max(1, collectionView.bounds.width - gridLayout.margins.left - gridLayout.margins.right)
+        return max(1, Int((available + spacing) / (itemWidth + spacing)))
+    }
+
     func openSelectedItem() {
         guard let indexPath = collectionView.selectionIndexPaths.first else { return }
         openItem(at: indexPath)

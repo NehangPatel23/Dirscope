@@ -1,15 +1,13 @@
 import AppKit
 
 private final class NestedTableRowView: NSTableRowView {
-    var nestingDepth: Int = 0
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        if nestingDepth > 0 {
-            let insetRect = bounds.insetBy(dx: 8, dy: 0)
-            PreviewTheme.nestedRowBackground(for: nestingDepth).setFill()
-            insetRect.fill()
-        }
-        super.drawBackground(in: dirtyRect)
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isSelected else { return }
+        let rect = bounds.insetBy(dx: 6, dy: 1)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+        let alpha: CGFloat = isEmphasized ? 0.14 : 0.08
+        NSColor.labelColor.withAlphaComponent(alpha).setFill()
+        path.fill()
     }
 }
 
@@ -24,11 +22,17 @@ final class FolderContentsTableView: NSTableView {
         didSet { reloadColumnLayout() }
     }
 
+    var zoom: Double = 1 {
+        didSet { applyStyle() }
+    }
+
     var onSortColumn: ((PreviewColumn) -> Void)?
     var onRowCountChanged: ((Int) -> Void)?
     var onItemSelected: ((FileItem?) -> Void)?
 
     private let header = PreviewTableHeaderView()
+    private var expansionToken = UUID()
+    private var pendingExpansions: [String: UUID] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -41,9 +45,12 @@ final class FolderContentsTableView: NSTableView {
     }
 
     func setRootItems(_ items: [FileItem]) {
+        expansionToken = UUID()
+        pendingExpansions.removeAll()
         treeModel.setRootItems(items)
         reloadData()
         onRowCountChanged?(treeModel.displayRows.count)
+        preloadExpansionIfNeeded(token: expansionToken)
     }
 
     func applySort() {
@@ -82,10 +89,16 @@ final class FolderContentsTableView: NSTableView {
 
         for tableColumn in tableColumns {
             guard let column = PreviewColumn(rawValue: tableColumn.identifier.rawValue) else { continue }
-            if column == active {
-                tableColumn.headerCell.title = "\(column.title) \(ascending ? "↑" : "↓")"
-            } else {
                 tableColumn.headerCell.title = column.title
+            tableColumn.headerCell.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            if column == active {
+                let symbol = ascending ? "chevron.up" : "chevron.down"
+                let image = NSImage(systemSymbolName: symbol, accessibilityDescription: ascending ? "Ascending" : "Descending")
+                image?.isTemplate = true
+                image?.size = NSSize(width: 9, height: 9)
+                setIndicatorImage(image, in: tableColumn)
+            } else {
+                setIndicatorImage(nil, in: tableColumn)
             }
         }
     }
@@ -121,9 +134,10 @@ final class FolderContentsTableView: NSTableView {
 
         style = .plain
         allowsMultipleSelection = false
-        usesAlternatingRowBackgroundColors = true
+        usesAlternatingRowBackgroundColors = false
         gridStyleMask = []
-        intercellSpacing = NSSize(width: 8, height: 4)
+        intercellSpacing = NSSize(width: 8, height: 2)
+        backgroundColor = .clear
         columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         allowsColumnReordering = false
         allowsColumnResizing = true
@@ -144,19 +158,59 @@ final class FolderContentsTableView: NSTableView {
     }
 
     private func applyStyle() {
-        rowHeight = max(textSize.rowHeight, showThumbnails ? textSize.thumbnailSize + 8 : textSize.rowHeight)
+        let scaled = textSize.rowHeight * zoom
+        let thumbnail = showThumbnails ? textSize.thumbnailSize * zoom + 8 : scaled
+        rowHeight = max(scaled, thumbnail, 20)
     }
 
-    private func toggleFolder(atRow row: Int) {
-        guard treeModel.displayRows.indices.contains(row) else { return }
-        guard treeModel.displayRows[row].item.isContainer else { return }
+    func applyZoom(_ zoom: Double) {
+        self.zoom = zoom
+        reloadData()
+    }
 
-        guard treeModel.toggleFolder(itemID: treeModel.displayRows[row].item.id) != nil else { return }
+    private func preloadExpansionIfNeeded(token: UUID) {
+        guard PreviewSettings.expandChildFolders else { return }
+        let roots = treeModel.rootItems
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let children = FolderTreeModel.preloadedChildren(of: roots)
+            DispatchQueue.main.async {
+                guard let self, self.expansionToken == token, !children.isEmpty else { return }
+                self.treeModel.installPreloadedChildren(children)
+                self.reloadData()
+                self.onRowCountChanged?(self.treeModel.displayRows.count)
+            }
+        }
+    }
 
+    private func reloadAfterTreeChange() {
         reloadData()
         onRowCountChanged?(treeModel.displayRows.count)
         if let scrollView = enclosingScrollView {
             NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: scrollView.contentView)
+        }
+    }
+
+    private func toggleFolder(atRow row: Int) {
+        guard treeModel.displayRows.indices.contains(row) else { return }
+        let itemID = treeModel.displayRows[row].item.id
+        guard let result = treeModel.toggleFolder(itemID: itemID) else { return }
+
+        switch result {
+        case .updated:
+            pendingExpansions[itemID] = nil
+            reloadAfterTreeChange()
+        case .needsChildren(let item):
+            let token = UUID()
+            pendingExpansions[item.id] = token
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let children = FolderTreeModel.children(of: item)
+                DispatchQueue.main.async {
+                    guard let self, self.pendingExpansions[item.id] == token else { return }
+                    self.pendingExpansions[item.id] = nil
+                    self.treeModel.completeExpansion(of: item.id, children: children)
+                    self.reloadAfterTreeChange()
+                }
+            }
         }
     }
 
@@ -203,6 +257,31 @@ final class FolderContentsTableView: NSTableView {
         super.cursorUpdate(with: event)
     }
 
+    func moveSelection(vertically delta: Int) {
+        let count = numberOfRows
+        guard count > 0, delta != 0 else { return }
+        let next: Int
+        if selectedRow < 0 {
+            next = delta > 0 ? 0 : count - 1
+        } else {
+            next = min(max(selectedRow + delta, 0), count - 1)
+        }
+        guard next != selectedRow else { return }
+        selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
+        scrollRowToVisible(next)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 126:
+            moveSelection(vertically: -1)
+        case 125:
+            moveSelection(vertically: 1)
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
     func openItem(atRow row: Int) {
         guard treeModel.displayRows.indices.contains(row) else { return }
         let item = treeModel.displayRows[row].item
@@ -224,11 +303,7 @@ extension FolderContentsTableView: NSTableViewDataSource {
 
 extension FolderContentsTableView: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        let rowView = NestedTableRowView()
-        if treeModel.displayRows.indices.contains(row) {
-            rowView.nestingDepth = treeModel.displayRows[row].depth
-        }
-        return rowView
+        return NestedTableRowView()
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -239,7 +314,6 @@ extension FolderContentsTableView: NSTableViewDelegate {
         }
 
         let displayRow = treeModel.displayRows[row]
-        let item = displayRow.item
 
         switch column {
         case .preview:
@@ -310,6 +384,7 @@ extension FolderContentsTableView: NSTableViewDelegate {
             text: displayRow.item.value(for: column),
             depth: displayRow.depth,
             textSize: textSize,
+            zoom: zoom,
             alignment: column == .size ? .right : .left
         )
         return cell
@@ -409,10 +484,11 @@ private final class IndentedTextCell: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(text: String, depth: Int, textSize: PreviewTextSize, alignment: NSTextAlignment) {
+    func configure(text: String, depth: Int, textSize: PreviewTextSize, zoom: Double, alignment: NSTextAlignment) {
         leadingConstraint?.constant = PreviewTheme.treeIndent(for: depth) + 4
-        label.font = PreviewTheme.bodyFont(size: textSize)
-        label.textColor = depth > 0 ? .tertiaryLabelColor : .secondaryLabelColor
+        let size = max(10, textSize.pointSize * zoom)
+        label.font = .systemFont(ofSize: size, weight: .regular)
+        label.textColor = .secondaryLabelColor
         label.alignment = alignment
         label.stringValue = text
     }

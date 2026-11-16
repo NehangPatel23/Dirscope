@@ -27,7 +27,7 @@ struct FolderPreviewAppApp: App {
                     }
             }
         }
-        .defaultSize(width: 780, height: 560)
+        .defaultSize(width: 960, height: 640)
         .windowResizability(.contentMinSize)
 
         Settings {
