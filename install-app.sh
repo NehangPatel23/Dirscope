@@ -76,6 +76,17 @@ if [[ ! -d "$SOURCE_APP" ]]; then
 fi
 
 bundle_7zz_into_app "${SOURCE_APP}"
+xattr -cr "${SOURCE_APP}" 2>/dev/null || true
+
+# Bundling 7zz after xcodebuild invalidates the seal — re-sign ad-hoc before install.
+if [[ -f "${SOURCE_APP}/Contents/Resources/7zz" ]]; then
+  codesign --force --options runtime --sign - "${SOURCE_APP}/Contents/Resources/7zz"
+fi
+APPEX="${SOURCE_APP}/Contents/PlugIns/FolderPreviewExtension.appex"
+if [[ -d "${APPEX}" ]]; then
+  codesign --force --options runtime --sign - "${APPEX}"
+fi
+codesign --force --options runtime --sign - "${SOURCE_APP}"
 
 echo "Installing to ${DEST_APP}..."
 rm -rf "$DEST_APP"

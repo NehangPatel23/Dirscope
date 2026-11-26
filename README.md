@@ -42,16 +42,30 @@ Press **Space** or **⌘Y** on any folder or archive in Finder.
 | **What you don’t need** | Dirscope’s window open while previewing — Quick Look runs in the extension |
 | **Open source** | MIT license · built from scratch in Swift, SwiftUI, AppKit, and Quick Look |
 
+```mermaid
+flowchart LR
+  subgraph Finder
+    Folder["📁 My Project"]
+  end
+
+  Folder -->|Space| Panel
+
+  subgraph Panel["Quick Look panel"]
+    direction TB
+    subgraph Browser
+      direction LR
+      Tree["▾ src<br/>&nbsp;&nbsp;▾ components<br/>&nbsp;&nbsp;&nbsp;&nbsp;Button.swift"]
+      Preview["preview pane<br/><i>source · Office · image · media · QL</i>"]
+    end
+    Footer["path › … › src&nbsp;&nbsp;▲ ▼&nbsp;&nbsp;[ List │ Icons ]"]
+  end
+
+  style Folder fill:#e8f0fe,stroke:#0A84FF,color:#1d1d1f
+  style Tree fill:#f5f5f7,stroke:#d2d2d7,color:#1d1d1f
+  style Preview fill:#f5f5f7,stroke:#d2d2d7,color:#1d1d1f
+  style Footer fill:#ffffff,stroke:#d2d2d7,color:#6e6e73
 ```
-  Finder                    Quick Look panel
-  ──────                    ─────────────────────────────────────────
-  📁 My Project  ──Space──►  ┌──────────────────┬─────────────────────┐
-                             │ ▾ src            │  preview pane       │
-                             │   ▾ components   │  (source, Office,   │
-                             │     Button.swift │   image, media, QL) │
-                             └──────────────────┴─────────────────────┘
-                             path › … › src   ▲ ▼   [ List │ Icons ]
-```
+
 ---
 
 ## Features
@@ -225,7 +239,7 @@ Optional: `./scripts/fetch-7zz.sh` before install for sandboxed **7z/rar** suppo
 
 ### Gatekeeper (ad-hoc builds)
 
-By default, GitHub release zips are **ad-hoc signed** when no **Developer ID Application** identity is available. `scripts/release-build.sh` auto-detects Developer ID and notarizes when both that identity and `NOTARY_PROFILE` are present.
+By default, GitHub release zips are **ad-hoc signed** when no **Developer ID Application** identity is available. `scripts/release-build.sh` auto-detects Developer ID and notarizes when both that identity and `NOTARY_PROFILE` are present. After bundling the optional `7zz` helper, the release script **re-signs** the app (including ad-hoc) so the code signature stays valid.
 
 **You may see:** *“Dirscope can’t be opened because Apple cannot check it for malicious software.”*
 
@@ -233,6 +247,8 @@ By default, GitHub release zips are **ad-hoc signed** when no **Developer ID App
 
 1. **Right-click** `Dirscope.app` → **Open** → confirm, **or**
 2. **System Settings → Privacy & Security → Open Anyway** after the first blocked attempt
+
+**“Dirscope is damaged and can’t be opened”** is different — that means Gatekeeper rejected an **invalid** signature (not merely unsigned). Right-click → Open will not help. Use a release built with the fixed `release-build.sh` (1.1.2+), or build from source with `./install-app.sh`.
 
 An **Apple Development** certificate (free/local) can sign Debug builds but **cannot** produce Gatekeeper-clean notarized releases. For local Xcode runs you can set `DEVELOPMENT_TEAM` to your team ID (for example `724GWF58D7`); distribution still needs Developer ID + notary credentials.
 
@@ -350,6 +366,7 @@ gh release create v1.0.0 dist/Dirscope-1.0.0.zip dist/Dirscope-1.0.0.dmg \
 | Problem | Fix |
 |---------|-----|
 | macOS won’t open the app | [Gatekeeper](#gatekeeper-ad-hoc-builds): Right-click → Open |
+| “Damaged and can’t be opened” | Invalid signature — use 1.1.2+ release or `./install-app.sh` (Right-click → Open won’t fix this) |
 | Default folder icon in Quick Look | Close panel → `qlmanage -r` → `killall Finder` |
 | Extension failed during preview | `./install-app.sh` → `killall Finder` |
 | Blank source / code pane after install | Close Quick Look completely and press Space again so the new extension loads |

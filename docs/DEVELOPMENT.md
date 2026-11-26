@@ -41,6 +41,8 @@ Dirscope/
 │   ├── QuickLookPageView.swift    Quick Look usage guide
 │   ├── SettingsPagesView.swift    Appearance & Behaviors pages
 │   ├── AboutPageView.swift        About & capabilities
+│   ├── DiagnosticsExporter.swift Support bundle export (zip)
+│   ├── DirscopeMenuBarExtra.swift Menu bar recents & helper status
 │   └── Settings/                  Settings form views
 │
 ├── FolderPreviewExtension/        Quick Look extension (AppKit)
@@ -58,7 +60,10 @@ Dirscope/
 │   ├── PreviewSettings.swift      Settings accessors, defaults & migrations
 │   ├── SharedPreferencesStore.swift  File-backed prefs + Darwin notifications
 │   ├── FolderContentLoader.swift  Directory listing
+│   ├── ContentSearchIndex.swift   ContentSearchRunner (name/content filter)
+│   ├── PreviewSmartFilter.swift   Kind popup filters (images, code, …)
 │   ├── ArchiveContentLoader.swift Archive listing & entry extraction
+│   ├── ArchiveDMGMountBridge.swift  DMG mount helper (extension ↔ host)
 │   ├── ArchiveEntryOpenBridge.swift Staged archive opens (extension → helper)
 │   ├── ArchiveSandboxAccess.swift Sandbox-safe archive reads & temp copies
 │   ├── ZipArchiveReader.swift     In-process zip parser (store + deflate)
@@ -66,8 +71,11 @@ Dirscope/
 │   ├── FileItem.swift             File/folder/archive-entry model
 │   ├── PreviewColumn.swift        Column definitions
 │   ├── PreviewTheme.swift         Colors, fonts, layout constants
-│   ├── InlineFilePreviewLoader.swift  Text/code preview detection
+│   ├── InlineFilePreviewLoader.swift  Text/code preview detection (2 MB cap)
 │   ├── RichTextPreviewSupport.swift   Markdown/HTML helpers + SourceSyntaxHighlighter
+│   ├── StructuredDataPreview.swift    CSV table, Parquet schema summaries
+│   ├── ParquetFooterReader.swift      Parquet footer metadata
+│   ├── CloudFileAccess.swift          iCloud materialize / cancel on selection change
 │   └── OfficeDocumentPreview.swift    OOXML/ODF/RTF text extraction
 │
 ├── docs/
@@ -196,7 +204,11 @@ Status and reinstall: **Behaviors → Archive file opens** in the host app (`Arc
 
 The file list, right-hand inspect panel, and footer toolbar share semantic window background via `PreviewTheme.applySurfaceBackground`. Layer fills update in `viewDidChangeEffectiveAppearance` so the inspect pane and footer stay in sync with light/dark mode.
 
-The footer shows path breadcrumb (optional), **up / down navigation chevrons**, item count, List/Icons switcher, and zoom slider. Finder keeps arrow keys in the Quick Look panel, so list movement is driven from those chevrons (and from clicks).
+The footer shows a **clickable path breadcrumb** (optional), **up / down navigation chevrons**, item count, List/Icons switcher, and zoom slider. Finder keeps arrow keys in the Quick Look panel, so list movement is driven from those chevrons (and from clicks).
+
+Above the list, `PreviewViewController` hosts a **filter field** (name or content search), a **kind** popup (`PreviewSmartFilter`), and expandable tree state in `FolderTreeModel`. Content search (`ContentSearchRunner`) respects **Show hidden files** the same way as folder listing. Switching filter mode, kind, or live settings reloads the root listing without leaving content-search or smart-filter state inconsistent.
+
+**Columns** — optional **Resolution** (pixel dimensions from `FolderContentLoader.imagePixelDimensions` at listing time), **Tags**, **Owner**, **Permissions**, **Symlink**; presets in `PreviewColumn` / `ColumnPreset`.
 
 ### Side-panel preview pipeline
 
@@ -204,10 +216,14 @@ The footer shows path breadcrumb (optional), **up / down navigation chevrons**, 
 
 | Path | Implementation notes |
 |------|----------------------|
-| **Source / code** | `SourceSyntaxHighlighter` builds an `NSAttributedString`; `SourceCanvasView` draws it into an `NSImage` so glyphs composite inside Quick Look’s remote ViewBridge surface (live `NSTextView` drawing often stays blank there) |
+| **Source / code** | `SourceSyntaxHighlighter` builds an `NSAttributedString`; `SourceCanvasView` draws it into an `NSImage` so glyphs composite inside Quick Look’s remote ViewBridge surface (live `NSTextView` drawing often stays blank there); text read capped at **2 MB** (`InlineFilePreviewLoader.maxPreviewBytes`) |
 | **Markdown / HTML** | Source vs Formatted when a formatted preview is feasible; Source/Formatted controls are hidden when only one mode applies |
+| **CSV** | `CSVTablePreview` / `StructuredDataPreview` table HTML when feasible |
+| **Parquet** | `ParquetFooterReader` schema summary in source pane |
+| **Jupyter (`.ipynb`)** | JSON source with syntax coloring |
+| **Fonts / 3D** | System `QLPreviewView` when Quick Look provides a preview |
 | **Office** | `OfficeDocumentPreview` extracts text from OOXML/ODF packages and RTF |
-| **Images** | Background decode; iCloud dataless files use `NSFileCoordinator` / ubiquity download messaging before ImageIO |
+| **Images** | Background decode; iCloud dataless files use `CloudFileAccess` (`NSFileCoordinator`) before ImageIO; active downloads cancel when selection changes (`FilePreviewPaneView.show`) |
 | **Video / audio** | `AVPlayer` + `AVPlayerView` (`PreviewPlayerView`) for in-process controls |
 | **System Quick Look** | Nested `QLPreviewView` for PDF and other types with a real system preview |
 | **Folders / archives** | Placeholder copy only |
@@ -241,7 +257,9 @@ User-facing name: **Dirscope** (bundle IDs unchanged from early development).
 | `Shared/ArchiveEntryOpenBridge.swift` | Staged archive opens from extension to helper |
 | `Shared/RichTextPreviewSupport.swift` | Markdown/HTML rendering + `SourceSyntaxHighlighter` |
 | `Shared/OfficeDocumentPreview.swift` | Office / ODF / RTF text extraction for the side pane |
-| `FolderPreviewExtension/PreviewViewController.swift` | Quick Look lifecycle and layout |
+| `FolderPreviewExtension/PreviewViewController.swift` | Quick Look lifecycle, filters, listing restore |
+| `Shared/ContentSearchIndex.swift` | Background content search enumerator |
+| `Shared/ArchiveDMGMountBridge.swift` | DMG mount/detach helper bridge |
 | `FolderPreviewExtension/FilePreviewPaneView.swift` | Side-panel previews (source canvas, media, Office, QL) |
 | `FolderPreviewExtension/PreviewFooterView.swift` | Path, selection nav chevrons, view mode, zoom |
 | `FolderPreviewApp/AppVisualKit.swift` | `SettingsPage` and shared SwiftUI chrome |
@@ -329,7 +347,7 @@ Environment variables:
 | `NOTARY_PROFILE` | Keychain notarytool profile name |
 | `DIRSCOPE_VERSION` | Marketing version (default `1.0.0`) |
 
-The script builds Release, bundles `7zz`, re-signs nested tools, optionally submits to Apple (`notarytool submit` + `stapler staple`), and regenerates zip/dmg.
+The script builds Release, bundles `7zz`, **always** re-signs nested tools and the app (ad-hoc or Developer ID — required so Gatekeeper does not report the download as “damaged”), optionally submits to Apple (`notarytool submit` + `stapler staple`), and regenerates zip/dmg.
 
 ### Publish to GitHub
 
@@ -348,7 +366,7 @@ gh release create v1.0.0 dist/Dirscope-1.0.0.zip dist/Dirscope-1.0.0.dmg \
 | Extension crash | `~/Library/Logs/DiagnosticReports/FolderPreviewExtension*.ips` |
 | Extension failed during preview | `./install-app.sh`, `killall Finder` |
 | Blank source pane after rebuild | Fully close Quick Look, then Space again so the new `.appex` loads |
-| Arrow keys don’t change selection | Expected in Finder Quick Look; use footer chevrons (`PreviewFooterView`) |
+| Arrow keys don’t change selection | Try **j/k**, Space/←/→ expand, or footer chevrons (`PreviewFooterView`) |
 | Image shows generic icon / empty pixels | Dataless iCloud file — wait for download or force materialize, then reselect |
 | `xcodebuild` / file I/O “Operation timed out” | Repo on iCloud Desktop with dataless files — download locally or move off iCloud |
 | Archive open broken | Reinstall LaunchAgent; `pgrep -fl backgroundOpenHelper` |
@@ -368,7 +386,9 @@ plutil -p ~/Library/Containers/com.folderpreview.app.preview/Data/Library/Applic
 ## Implementation status / known limitations
 
 - **Zip** — listing, nested folders, nested zips, deflate extraction, image/text side-panel preview, per-entry size/modified date (including aggregated folder totals), open in default app via background helper
-- **Tar / `.tar.gz` / `.tar.xz`** — in-process listing and extraction with metadata; xz uses `/usr/bin/xz` on sandbox copy before tar parse
+- **Tar / `.tar.gz` / `.tar.bz2` / `.tar.xz` / `.tar.zst`** — in-process listing and extraction with metadata; compression sidecars use platform tools on sandbox copies when needed
+- **`.iso`** — listing via bundled `7zz l` when present
+- **`.dmg`** — `7zz l` when bundled; otherwise `ArchiveDMGMountBridge` mount helper + listing of mounted volume
 - **Single `.gz`** — in-process gunzip
 - **`.7z` / `.rar`** — bundled `7zz` in app Resources ([`Vendor/README.md`](../Vendor/README.md)); Homebrew fallbacks for local dev
 - **Source preview** — language-aware coloring via `SourceSyntaxHighlighter`; rendered through `SourceCanvasView` bitmap (not selectable `NSTextView` text)
@@ -377,17 +397,32 @@ plutil -p ~/Library/Containers/com.folderpreview.app.preview/Data/Library/Applic
 - **List navigation** — footer up/down chevrons; Finder retains arrow keys in the Quick Look panel
 - **HTML in archives** — Source/Formatted preview with staged temp base URL; complex pages with external assets may need a browser
 - **Background helper status** — Behaviors settings shows LaunchAgent installed/running + reinstall action
-- **Zip entry cache** — archive bytes and parsed listings cached per path/size/mtime
-- **Ad-hoc signing** — used for local and GitHub releases without notarization
+- **Menu bar extra** — recents, reveal recent, helper status, Open Dirscope, Quit (`DirscopeMenuBarExtra`; omitted for `-backgroundOpenHelper`)
+- **Open in Terminal / Editor** — `FileItemActions` + `PreviewSettings.terminalBundleID` / `editorBundleID`; configured in Behaviors
+- **Diagnostics export** — `DiagnosticsExporter` (About + Behaviors); zip with version, redacted prefs, helper plist, `sw_vers` / `uname`, log path notes
+- **Smart views** — `SmartViewsStore` + `PreviewSettings.smartFilterRaw`; Appearance Add Current + QL **Save Current View…** / Views popup
+- **Tag filter** — `PreviewSettings.activeTagFilter` + Tags popup beside kind filter
+- **Cancel UX / watch folder** — footer Cancel; `FolderWatcher` DispatchSource coalesce reload
+- **Duplicates / SHA-256 / zip compress / folder sizes** — `DuplicateFinder`, `FileChecksum`, `ZipCompressBridge`, `FolderSizeRollup`; zip via host helper
+- **Open With recents + Always** — `openWithRecentBundleIDs` / `openWithAlwaysByExtension`
+- **Path clipboard / archive bookmarks / compare / Trash** — `PathClipboardStore`, `ArchiveBookmarksStore`, `FolderCompareEngine`, Library Trash actions
+- **Print / PDF listing** — `ListingPrintExport`
+- **Parquet / mail / chat / SQLite / plist / `.env`** — `ParquetFooterReader`, `EmailMessagePreview`, `MailboxPreview`, `MsgMessagePreview`, `ChatExportPreview`, `SQLitePreview`, `PlistPreview`, `EnvSecretsRedactor`
+- **UtilityWorkLimiter** — shared concurrency for search / rollups / scans
+- **Zip entry cache** — archive bytes and parsed listings cached per path/size/mtime (LRU size/count caps)
+- **Ad-hoc signing** — default when no Developer ID Application identity is present; `release-build.sh` auto-detects Developer ID and notarizes when `NOTARY_PROFILE` is set
 - **App Group entitlements** — not used (requires paid signing identity)
 
 **Deferred / out of scope:**
 
-- Selectable / searchable live text in the source pane (bitmap path is required for reliable QL compositing today)
-- Full Office layout (slides, sheets as grids, embedded images)
-- Arrow-key forwarding into the extension process (Finder / ViewBridge keeps those events)
-- `.zip` inside normal folders as expandable containers (separate feature)
+- Perfect glyph compositing of every `NSTextView` in remote Quick Look (canvas fallback remains)
+- Full custom Office layout engines (slides/sheets as native grids beyond system QL)
 - Full in-process 7z parser (bundled binary is sufficient)
+- **Notarization / Developer ID distribution** — optional via `release-build.sh` when credentials exist; not shipped as a product feature here
+- **Sparkle or Mac App Store auto-update** — use GitHub releases or `./install-app.sh`
+- **Batch rename** — not implemented
+- **Localization** — English UI only
+- **Tree-sitter** syntax highlighting — not implemented (regex/lexer highlighter only)
 
 ---
 

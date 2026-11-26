@@ -10,6 +10,7 @@ VERSION="${DIRSCOPE_VERSION:-1.0.0}"
 DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 SKIP_NOTARIZE=false
+HAS_DEVELOPER_ID=false
 
 usage() {
   cat <<EOF
@@ -18,14 +19,35 @@ Usage: $0 [--skip-notarize] [--version VERSION]
 Build a Release Dirscope.app, optionally notarize it, and write artifacts to dist/.
 
 Environment:
-  DEVELOPMENT_TEAM   Apple Developer Team ID (required for Developer ID signing)
+  DEVELOPMENT_TEAM   Apple Developer Team ID (auto-detected from Developer ID Application if unset)
   NOTARY_PROFILE     Keychain notarytool profile name (required for notarization)
   DIRSCOPE_VERSION   Marketing version tag (default: 1.0.0)
+
+Notes:
+  Apple Development certificates alone are not used for distribution or notarization.
+  A "Developer ID Application" identity is required for Gatekeeper-clean releases.
 
 Examples:
   DEVELOPMENT_TEAM=ABCDE12345 NOTARY_PROFILE=dirscope-notary $0
   $0 --skip-notarize
 EOF
+}
+
+detect_developer_id() {
+  local identity_line team
+  identity_line="$(security find-identity -v -p codesigning 2>/dev/null | grep 'Developer ID Application' | head -n 1 || true)"
+  if [[ -z "${identity_line}" ]]; then
+    HAS_DEVELOPER_ID=false
+    return
+  fi
+  HAS_DEVELOPER_ID=true
+  if [[ -z "${DEVELOPMENT_TEAM}" ]]; then
+    team="$(printf '%s\n' "${identity_line}" | sed -n 's/.*(\([A-Z0-9]\{10\}\)).*/\1/p')"
+    if [[ -n "${team}" ]]; then
+      DEVELOPMENT_TEAM="${team}"
+      echo "Auto-detected Developer ID team: ${DEVELOPMENT_TEAM}" >&2
+    fi
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -87,6 +109,7 @@ sign_nested_tools() {
 
 mkdir -p "${DIST_DIR}"
 clear_codesign_xattrs
+detect_developer_id
 
 BUILD_ARGS=(
   -project "${ROOT}/FolderPreviewApp.xcodeproj"
@@ -98,16 +121,22 @@ BUILD_ARGS=(
   ENABLE_HARDENED_RUNTIME=YES
 )
 
-if [[ -n "${DEVELOPMENT_TEAM}" ]]; then
+if $HAS_DEVELOPER_ID && [[ -n "${DEVELOPMENT_TEAM}" ]]; then
   BUILD_ARGS+=(
     DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM}"
     CODE_SIGN_IDENTITY="Developer ID Application"
   )
   SIGN_IDENTITY="Developer ID Application"
+  echo "Signing with Developer ID Application (team ${DEVELOPMENT_TEAM})." >&2
 else
   BUILD_ARGS+=(CODE_SIGN_IDENTITY="-")
   SIGN_IDENTITY="-"
-  echo "DEVELOPMENT_TEAM not set; building with ad-hoc signing." >&2
+  if [[ -n "${DEVELOPMENT_TEAM}" ]] && ! $HAS_DEVELOPER_ID; then
+    echo "DEVELOPMENT_TEAM is set but no Developer ID Application identity was found; using ad-hoc signing." >&2
+    echo "Apple Development certificates cannot notarize or produce Gatekeeper-clean zips." >&2
+  else
+    echo "No Developer ID Application identity; building with ad-hoc signing." >&2
+  fi
 fi
 
 echo "Building Release Dirscope ${VERSION}..."
@@ -123,11 +152,16 @@ xattr -cr "${SOURCE_APP}" 2>/dev/null || true
 bundle_7zz_into_app "${SOURCE_APP}"
 xattr -cr "${SOURCE_APP}" 2>/dev/null || true
 
-if [[ "${SIGN_IDENTITY}" != "-" ]]; then
-  echo "Re-signing nested tools..."
-  sign_nested_tools "${SOURCE_APP}" "${SIGN_IDENTITY}"
-  codesign --force --deep --options runtime --sign "${SIGN_IDENTITY}" "${SOURCE_APP}"
+# Bundling 7zz after xcodebuild invalidates the seal — always re-sign (ad-hoc or Developer ID).
+# Skipping this on the ad-hoc path produces Gatekeeper "damaged and can't be opened" on download.
+echo "Re-signing after bundling nested tools (identity: ${SIGN_IDENTITY})..."
+sign_nested_tools "${SOURCE_APP}" "${SIGN_IDENTITY}"
+APPEX="${SOURCE_APP}/Contents/PlugIns/FolderPreviewExtension.appex"
+if [[ -d "${APPEX}" ]]; then
+  codesign --force --options runtime --sign "${SIGN_IDENTITY}" "${APPEX}"
 fi
+codesign --force --options runtime --sign "${SIGN_IDENTITY}" "${SOURCE_APP}"
+codesign --verify --deep --strict --verbose=2 "${SOURCE_APP}"
 
 ZIP_PATH="${DIST_DIR}/Dirscope-${VERSION}.zip"
 DMG_PATH="${DIST_DIR}/Dirscope-${VERSION}.dmg"
@@ -148,8 +182,10 @@ if command -v hdiutil >/dev/null; then
 fi
 
 if ! $SKIP_NOTARIZE; then
-  if [[ -z "${DEVELOPMENT_TEAM}" || -z "${NOTARY_PROFILE}" ]]; then
-    echo "Skipping notarization (set DEVELOPMENT_TEAM and NOTARY_PROFILE, or pass --skip-notarize)." >&2
+  if ! $HAS_DEVELOPER_ID; then
+    echo "Skipping notarization (no Developer ID Application identity in the keychain)." >&2
+  elif [[ -z "${DEVELOPMENT_TEAM}" || -z "${NOTARY_PROFILE}" ]]; then
+    echo "Skipping notarization (set NOTARY_PROFILE after installing Developer ID, or pass --skip-notarize)." >&2
   else
     echo "Submitting ${ZIP_PATH} for notarization..."
     xcrun notarytool submit "${ZIP_PATH}" --keychain-profile "${NOTARY_PROFILE}" --wait
@@ -175,8 +211,9 @@ cat > "${DIST_DIR}/RELEASE-${VERSION}.md" <<EOF
 
 1. Download \`Dirscope-${VERSION}.zip\` (or the DMG if provided).
 2. Move \`Dirscope.app\` to \`/Applications\`.
-3. Open Dirscope once, then enable the Quick Look extension in **System Settings → General → Login Items & Extensions → Quick Look**.
-4. In Finder, select a folder and press **Space** or **⌘Y**.
+3. First open may show an unidentified-developer warning — **Right-click → Open**, or **Privacy & Security → Open Anyway**. If macOS says the app is **damaged**, that is a broken signature; use a newer release or build from source.
+4. Open Dirscope once, then enable the Quick Look extension in **System Settings → General → Login Items & Extensions → Quick Look**.
+5. In Finder, select a folder and press **Space** or **⌘Y**.
 
 ## Archive support
 
