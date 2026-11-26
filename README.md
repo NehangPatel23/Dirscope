@@ -14,13 +14,9 @@ Press **Space** or **⌘Y** on any folder or archive in Finder.
 
 <br>
 
-<video src="docs/dirscope-brag.mp4" poster="docs/dirscope-brag.jpg" width="720" controls playsinline>
-  <a href="docs/dirscope-brag.mp4"><img src="docs/dirscope-brag.jpg" alt="Dirscope demo — press Space to preview folders in Finder Quick Look" width="720" /></a>
-</video>
+[![Dirscope demo — press Space to preview folders in Finder Quick Look](docs/dirscope-brag.gif)](docs/dirscope-brag.mp4)
 
-<br>
-
-<em>Music: Sascha Ende · <a href="https://ende.app/en">ende.app</a> (CC BY 4.0)</em>
+**[▶ Full video with sound (MP4)](docs/dirscope-brag.mp4)** · Music: [Sascha Ende / ende.app](https://ende.app/en) (CC BY 4.0)
 
 <br>
 
