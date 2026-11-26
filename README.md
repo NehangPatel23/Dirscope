@@ -14,6 +14,16 @@ Press **Space** or **⌘Y** on any folder or archive in Finder.
 
 <br>
 
+<video src="docs/dirscope-brag.mp4" poster="docs/dirscope-brag.jpg" width="720" controls playsinline>
+  <a href="docs/dirscope-brag.mp4"><img src="docs/dirscope-brag.jpg" alt="Dirscope demo — press Space to preview folders in Finder Quick Look" width="720" /></a>
+</video>
+
+<br>
+
+<em>Music: Sascha Ende · <a href="https://ende.app/en">ende.app</a> (CC BY 4.0)</em>
+
+<br>
+
 [![macOS 13+](https://img.shields.io/badge/macOS-13.0+-0A84FF?style=for-the-badge&logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift 5](https://img.shields.io/badge/Swift-5-FA7343?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org/)
 [![License MIT](https://img.shields.io/badge/License-MIT-34C759?style=for-the-badge)](LICENSE)
@@ -75,9 +85,17 @@ Press **Space** or **⌘Y** on any folder or archive in Finder.
 | Added | Date added to parent folder |
 | Size | File size (human-readable) |
 | Type | Uniform Type localized description |
-| Resolution | Pixel dimensions for images |
+| Resolution | Image pixel dimensions (from listing metadata) |
+| Tags | Finder tag names |
+| Owner | POSIX owner |
+| Permissions | `rwx` triplet |
+| Symlink | Symbolic link target |
 
-Default visible columns: **Name**, **Modified**, **Size**, **Type**.
+Default visible columns: **Name**, **Modified**, **Size**, **Type**. Column presets (**Default**, **Photos**, **Code**, **All**) are in **Appearance** settings.
+
+**Filtering** — footer-adjacent toolbar in Quick Look: search field (**Name** or **Content**), **kind** popup (All / Images / Code / Documents / Media / Large), and expandable folder tree. Breadcrumb segments in the footer are **clickable** for navigation (list tree or icon drill-down).
+
+**iCloud** — placeholders in lists; the inspect pane coordinates download before image, media, or text preview when files are still dataless.
 
 ---
 
@@ -90,10 +108,14 @@ Open archives in Quick Look like folders — browse without extracting the whole
 | **`.zip`** | In-process | Per entry + folder aggregates | Yes | Yes (background helper) |
 | **`.tar`** | In-process | Per entry + folder aggregates | Yes | Yes |
 | **`.tar.gz` / `.tgz`** | In-process (gzip + tar) | Yes | Yes | Yes |
+| **`.tar.bz2`** | In-process (bzip2 + tar) | Yes | Yes | Yes |
 | **`.tar.xz`** | In-process (xz + tar) | Yes | Yes | Yes |
+| **`.tar.zst`** | In-process (zstd + tar) | Yes | Yes | Yes |
 | **`.gz`** (single file) | Single implicit entry | — | Yes | Yes |
 | **`.7z`** | Via bundled `7zz` | Limited | Yes | Yes |
 | **`.rar`** | Via bundled `7zz` | Limited | Yes | Yes |
+| **`.iso`** | Via bundled `7zz` (`7zz l`) | Limited | Yes | Yes |
+| **`.dmg`** | `7zz l` when bundled; else **mount helper** lists mounted volume | Limited | Yes | Yes |
 
 **Archive behaviors**
 
@@ -120,12 +142,21 @@ Click any file in the list to inspect it on the right.
 
 | Content type | Behavior |
 |--------------|----------|
-| **Plain text & code** | Syntax-colored monospaced source (Swift, JS/TS, Python, Go, Rust, C-family, HTML, JSON, YAML, shell, …); 512 KB cap with truncation notice |
+| **Plain text & code** | Syntax-colored monospaced source (Swift, JS/TS, Python, Go, Rust, C-family, HTML, JSON, YAML, shell, …); **2 MB** cap with truncation notice |
 | **Dotfiles & config** | `.gitignore`, `.dockerignore`, `.env*`, `.prettierrc`, `Dockerfile`, `Makefile`, … |
 | **Markdown** | Source / Formatted toggle when a formatted preview is feasible |
+| **CSV** | Source / Table toggle (first rows/cols as HTML table) |
+| **Jupyter (`.ipynb`)** | JSON notebook source with syntax coloring |
+| **Parquet** | Source metadata (footer hints + codecs) / Table sample when PLAIN uncompressed columns allow |
+| **Email (`.eml` / `.mbox` / `.msg`)** | MIME/mailbox/Outlook-string harvest; Source / Formatted |
+| **Chat exports** | WhatsApp text / Slack JSON sample → Source / Formatted transcript |
+| **SQLite (`.db` / `.sqlite`)** | Schema Source / Table sample (`SELECT * LIMIT 100`, read-only) |
+| **Plist** | XML or binary → pretty Source / nested Formatted tree |
+| **`.env*`** | Values redacted by default; **Reveal secrets** toggle in the preview chrome |
 | **HTML / SVG** | Source / Formatted when markup can be shown; SVG rendered as an image when possible |
+| **Fonts & 3D** | System Quick Look when available; otherwise placeholder |
 | **Office documents** | Extracted text preview for `.docx`, `.xlsx`, `.pptx`, related OOXML/ODF, and RTF (not a full layout of slides or charts) |
-| **Images** | Inspector with scaled preview, dimensions, and color profile; iCloud placeholders download when the network allows |
+| **Images** | Inspector with dimensions, color profile, camera/EXIF/GPS when present; iCloud placeholders download when the network allows |
 | **Video & audio** | In-process player with play, scrubber, volume, and playback controls |
 | **PDF & other system types** | System Quick Look surface when a real preview is available |
 | **Folders / archives** | Placeholder — use list chevrons to navigate |
@@ -141,15 +172,19 @@ The menu-bar app is for **onboarding, settings, and extension setup** — not re
 | Section | Purpose |
 |---------|---------|
 | **Dashboard** | Quick-start overview and System Settings shortcut |
+| **Library** | Favorites, recents, Trash, path clipboard, archive bookmarks, folder compare |
 | **Introduction** | How Dirscope fits into Finder |
 | **Quick Look** | What you can do once the preview is open |
 | **Extension** | Turn Dirscope on in System Settings |
-| **Appearance** | Default view, text size (S / M / L), path breadcrumb |
-| **Behaviors** | Hidden files, folder-first sort, auto-expand, nesting depth, helper status |
-| **About** | Product summary and capabilities |
+| **Appearance** | Default view, text size, syntax theme, column presets, saved smart views, path breadcrumb |
+| **Behaviors** | Hidden files, folder-first sort, auto-expand, nesting depth, helper status, Terminal/Editor apps, diagnostics export |
+| **About** | Product summary, capabilities, diagnostics export |
 | **⌘, Settings** | Same Appearance & Behaviors panes |
+| **Menu bar extra** | Recents, path clipboard, helper status, Open Dirscope, Quit (hidden in background helper mode) |
 
 The host UI uses a System Settings–style sidebar and card layout (brand mark, App / Guide sections, accent selection). **Settings sync** — preferences live in the extension container plist; changes apply live in Quick Look via Darwin notifications (no relaunch).
+
+**Quick Look actions** — context menus include **Open in Terminal** (disk folders) and **Open in Editor** (files; archive entries are staged first). Defaults: Terminal.app and VS Code when installed, otherwise TextEdit. Configure under **Behaviors → External applications**.
 
 ---
 
@@ -194,7 +229,7 @@ Optional: `./scripts/fetch-7zz.sh` before install for sandboxed **7z/rar** suppo
 
 ### Gatekeeper (ad-hoc builds)
 
-Dirscope is **not notarized** and is **not signed with a paid Apple Developer ID**. Release builds use ad-hoc / “Sign to Run Locally” signing.
+By default, GitHub release zips are **ad-hoc signed** when no **Developer ID Application** identity is available. `scripts/release-build.sh` auto-detects Developer ID and notarizes when both that identity and `NOTARY_PROFILE` are present.
 
 **You may see:** *“Dirscope can’t be opened because Apple cannot check it for malicious software.”*
 
@@ -203,7 +238,7 @@ Dirscope is **not notarized** and is **not signed with a paid Apple Developer ID
 1. **Right-click** `Dirscope.app` → **Open** → confirm, **or**
 2. **System Settings → Privacy & Security → Open Anyway** after the first blocked attempt
 
-This is normal for independent open-source Mac apps distributed outside the App Store without a $99/year Apple Developer Program membership. **We do not notarize** — by design, to avoid that cost.
+An **Apple Development** certificate (free/local) can sign Debug builds but **cannot** produce Gatekeeper-clean notarized releases. For local Xcode runs you can set `DEVELOPMENT_TEAM` to your team ID (for example `724GWF58D7`); distribution still needs Developer ID + notary credentials.
 
 ### No Apple Developer account
 
@@ -235,14 +270,20 @@ Dirscope runs locally. It does not upload folder contents or analytics to any se
 
 ### Limitations
 
-- Complex HTML in archives may need a browser; external assets are not fetched
-- Office preview is extracted text, not slide layout, charts, or embedded images; legacy `.doc` / `.xls` / `.ppt` are not parsed
-- Arrow keys in the Quick Look panel are kept by Finder; use the footer **up / down** chevrons to move the file selection
-- Source preview is a rasterized image (selectable text is not available in that pane)
-- `.zip` files inside normal folders are not expandable as containers (only inside archive browse mode)
+- Complex HTML in archives may need a browser for scripts/CSS; network loads are blocked in the formatted WebKit pane
+- Office layout preview uses system Quick Look when available; extracted text remains the fallback; legacy `.doc` / `.xls` / `.ppt` depend on system QL
+- Finder can still intercept some keys; Dirscope also supports **j/k**, expand/collapse, and footer nav chevrons
+- Source text prefers a live text view with Copy; a canvas fallback is used if Quick Look fails to composite glyphs
+- `.dmg` listing depends on bundled `7zz`; otherwise open/mount in Finder
 - App Group entitlements are not used; prefs sync via explicit container path
 - Quick Look extension is sandboxed; archive opens depend on the background helper
 - Files still in iCloud (dataless) need a network download before image/media preview can show pixels
+- Notarized releases require a **Developer ID Application** identity and `NOTARY_PROFILE`; Apple Development alone is not enough
+- **Open in Terminal** applies to on-disk folders only (not paths inside an archive listing)
+- **In-app auto-update (Sparkle)** is not included; use GitHub releases or build from source
+- **Batch rename**, **localization**, **Tree-sitter**, and custom Office layout engines remain out of scope
+- Folder **duplicate find**, **SHA-256 copy**, **compress to zip**, **folder size rollup**, **print/PDF listing**, and **Always Open With** (Dirscope-local per extension) are available from selection actions
+- On-disk folders **auto-refresh** via filesystem watch while the Quick Look session is open; use footer **Cancel** to stop search/duplicate/rollup work
 
 ---
 
@@ -256,8 +297,18 @@ Dirscope runs locally. It does not upload folder contents or analytics to any se
 | Move selection | Footer **up / down** chevrons |
 | Preview file | Single-click in list |
 | Open file | Double-click (or **Return** for archive entries) |
+| Open in Terminal | Right-click a folder → **Open in Terminal** |
+| Open in Editor | Right-click a file → **Open in Editor** |
 | Open from archive | Double-click, **Return**, or footer **Open with Dirscope…** |
+| Export diagnostics | **About** or **Behaviors → Support → Export Diagnostics…** |
 | Toggle columns | Right-click column header |
+| Filter / smart kind | Search field + kind popup above the list |
+| Saved smart views | Appearance → Views, or Views popup in Quick Look |
+| Find duplicates | Selection actions → **Find Duplicates** (disk folders) |
+| Copy SHA-256 | Selection actions / context menu |
+| Compress to Zip… | Selection actions → save panel (host helper builds zip) |
+| Content search | Filter mode **Content** (disk folders only) |
+| Breadcrumb navigate | Click a footer path segment |
 | Change settings | Dirscope app sidebar or **⌘,** |
 
 ---
@@ -287,7 +338,7 @@ xcodebuild -project FolderPreviewApp.xcodeproj \
 
 Outputs: `dist/Dirscope-VERSION.zip`, `.dmg`, and `RELEASE-VERSION.md`.
 
-Notarization (`DEVELOPMENT_TEAM`, `NOTARY_PROFILE`) is **optional** and requires a paid Apple Developer account. This project targets **ad-hoc** releases by default.
+Notarization is **optional**. The release script looks for a **Developer ID Application** identity and notarizes when `NOTARY_PROFILE` is also set. Without Developer ID, builds stay **ad-hoc**.
 
 Publish to GitHub:
 

@@ -51,5 +51,8 @@ iOSInjectionProject/
 # Distribution artifacts
 dist/
 
+# Local brag/Hyperframes working tree (shipped demo lives in docs/)
+brag-output/
+
 # Bundled binaries (obtain via scripts/fetch-7zz.sh)
 Vendor/7zz/
