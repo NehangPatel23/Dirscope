@@ -3,9 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Dirscope.app"
-BUILD_DIR="${ROOT}/DerivedData/Build/Products/Release"
+# Prefer /tmp so Desktop/iCloud repos don't hang on xattr or taint the seal with FinderInfo.
+DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-/tmp/Dirscope-DerivedData}"
+BUILD_DIR="${DERIVED_DATA_PATH}/Build/Products/Release"
 SOURCE_APP="${BUILD_DIR}/${APP_NAME}"
 DIST_DIR="${ROOT}/dist"
+STAGE_DIR="${STAGE_DIR:-/tmp/Dirscope-release-stage}"
 VERSION="${DIRSCOPE_VERSION:-1.0.0}"
 DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
@@ -73,10 +76,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 clear_codesign_xattrs() {
-  xattr -cr "${ROOT}/DerivedData" 2>/dev/null || true
+  xattr -cr "${DERIVED_DATA_PATH}" 2>/dev/null || true
   for path in FolderPreviewApp FolderPreviewExtension Shared FolderPreviewApp.xcodeproj Vendor; do
     xattr -cr "${ROOT}/${path}" 2>/dev/null || true
   done
+}
+
+resign_app_bundle() {
+  local app_path="$1"
+  local sign_identity="$2"
+  sign_nested_tools "${app_path}" "${sign_identity}"
+  local appex="${app_path}/Contents/PlugIns/FolderPreviewExtension.appex"
+  if [[ -d "${appex}" ]]; then
+    codesign --force --options runtime --sign "${sign_identity}" "${appex}"
+  fi
+  codesign --force --options runtime --sign "${sign_identity}" "${app_path}"
 }
 
 bundle_7zz_into_app() {
@@ -114,7 +128,7 @@ detect_developer_id
 BUILD_ARGS=(
   -project "${ROOT}/FolderPreviewApp.xcodeproj"
   -scheme FolderPreviewApp
-  -derivedDataPath "${ROOT}/DerivedData"
+  -derivedDataPath "${DERIVED_DATA_PATH}"
   -configuration Release
   MARKETING_VERSION="${VERSION}"
   CURRENT_PROJECT_VERSION="${VERSION}"
@@ -155,24 +169,24 @@ xattr -cr "${SOURCE_APP}" 2>/dev/null || true
 # Bundling 7zz after xcodebuild invalidates the seal — always re-sign (ad-hoc or Developer ID).
 # Skipping this on the ad-hoc path produces Gatekeeper "damaged and can't be opened" on download.
 echo "Re-signing after bundling nested tools (identity: ${SIGN_IDENTITY})..."
-sign_nested_tools "${SOURCE_APP}" "${SIGN_IDENTITY}"
-APPEX="${SOURCE_APP}/Contents/PlugIns/FolderPreviewExtension.appex"
-if [[ -d "${APPEX}" ]]; then
-  codesign --force --options runtime --sign "${SIGN_IDENTITY}" "${APPEX}"
-fi
-codesign --force --options runtime --sign "${SIGN_IDENTITY}" "${SOURCE_APP}"
+resign_app_bundle "${SOURCE_APP}" "${SIGN_IDENTITY}"
 codesign --verify --deep --strict --verbose=2 "${SOURCE_APP}"
 
 ZIP_PATH="${DIST_DIR}/Dirscope-${VERSION}.zip"
 DMG_PATH="${DIST_DIR}/Dirscope-${VERSION}.dmg"
-STAGED_APP="${DIST_DIR}/stage/${APP_NAME}"
+STAGED_APP="${STAGE_DIR}/${APP_NAME}"
 
-rm -rf "${DIST_DIR}/stage"
-mkdir -p "${DIST_DIR}/stage"
+rm -rf "${STAGE_DIR}"
+mkdir -p "${STAGE_DIR}" "${DIST_DIR}"
 ditto "${SOURCE_APP}" "${STAGED_APP}"
+# Desktop/iCloud copies can attach FinderInfo xattrs that invalidate the seal.
+xattr -cr "${STAGED_APP}" 2>/dev/null || true
+resign_app_bundle "${STAGED_APP}" "${SIGN_IDENTITY}"
+codesign --verify --deep --strict "${STAGED_APP}"
 
 (
-  cd "${DIST_DIR}/stage"
+  cd "${STAGE_DIR}"
+  rm -f "${ZIP_PATH}"
   zip -r "${ZIP_PATH}" "${APP_NAME}" >/dev/null
 )
 
@@ -191,7 +205,7 @@ if ! $SKIP_NOTARIZE; then
     xcrun notarytool submit "${ZIP_PATH}" --keychain-profile "${NOTARY_PROFILE}" --wait
     xcrun stapler staple "${STAGED_APP}"
     (
-      cd "${DIST_DIR}/stage"
+      cd "${STAGE_DIR}"
       rm -f "${ZIP_PATH}"
       zip -r "${ZIP_PATH}" "${APP_NAME}" >/dev/null
     )
